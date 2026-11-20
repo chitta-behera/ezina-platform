@@ -46,7 +46,7 @@ async def test_incoming_location_saved_to_draft(env):
     await env.location()
     conv = await env.conv()
     assert conv.draft["latitude"] == -24.6282 and conv.draft["longitude"] == 25.9231
-    assert conv.stage == "COLLECT_FARM_PHOTOS"
+    assert conv.stage == "COLLECT_ID_DOCUMENT"  # the ID document step follows the location
     assert "location has been received" in env.graph.texts()[-1]
 
 
@@ -59,7 +59,7 @@ async def test_invalid_location_rejected(env):
 
 # 5. image + media download/storage ---------------------------------------------
 async def test_incoming_image_downloaded_validated_and_stored(env, settings):
-    await env.run_registration_until("location")
+    await env.run_registration_until("selfie")
     await env.image()
     (doc,) = await env.all(FarmDocument)
     assert doc.doc_type == "FARM_PHOTO" and doc.mime_type == "image/jpeg" and doc.caption == "my maize"
@@ -70,7 +70,7 @@ async def test_incoming_image_downloaded_validated_and_stored(env, settings):
 
 
 async def test_image_with_bad_mime_rejected(env):
-    await env.run_registration_until("location")
+    await env.run_registration_until("selfie")
     env.graph.media["BAD"] = ("application/pdf", b"%PDF")
     await env.image(media_id="BAD")
     assert await env.all(FarmDocument) == []

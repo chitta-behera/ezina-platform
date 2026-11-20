@@ -51,8 +51,19 @@ class Settings(BaseSettings):
     s3_endpoint_url: str = ""
     s3_access_key_id: str = ""
     s3_secret_access_key: SecretStr = SecretStr("")
+    # Identity images (ID photo, selfie) live in a separate private, encrypted bucket; never public URLs.
+    s3_identity_bucket: str = ""
+    identity_local_dir: str = ""  # local backend only; default: "<MEDIA_LOCAL_DIR>_identity"
     max_media_bytes: int = 8 * 1024 * 1024
     allowed_image_mime: tuple[str, ...] = ("image/jpeg", "image/png", "image/webp")
+
+    # --- Identity verification (ID document + selfie) ---
+    identity_max_attempts: int = 3  # failed uploads per image before NEEDS_HELP
+    identity_min_image_px: int = 600  # minimum length of the shorter side
+    identity_max_bytes: int = 10 * 1024 * 1024
+    identity_allowed_mime: tuple[str, ...] = ("image/jpeg", "image/png", "image/webp")
+    identity_document_mime: tuple[str, ...] = ("image/jpeg", "image/png", "application/pdf")  # ID sent as a document
+    selfie_challenge_ttl_minutes: int = 10
 
     # --- Workflow tuning ---
     min_farm_photos: int = 1

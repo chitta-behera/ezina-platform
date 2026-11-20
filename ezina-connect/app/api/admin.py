@@ -10,8 +10,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_container, get_session, require_admin
-from app.enums import RegistrationStatus, VerificationStatus
-from app.models import Conversation, Farm, FarmDocument, Farmer, FarmerCrop, Message, Verification
+from app.enums import IdentityStatus, RegistrationStatus, VerificationStatus
+from app.models import Conversation, Farm, FarmDocument, Farmer, FarmerCrop, IdentityDocument, Message, Verification
 from app.services import farmer_service
 from app.services.container import Container
 from app.services.conversation_service import release_handoff
@@ -26,6 +26,7 @@ def _farmer_row(f: Farmer) -> dict:
         "id": str(f.id), "wa_id": f.wa_id, "full_name": f.full_name, "country": f.country,
         "preferred_language": f.preferred_language, "registration_status": f.registration_status,
         "verification_status": f.verification_status, "opted_out": f.opted_out,
+        "id_document_status": f.id_document_status, "selfie_status": f.selfie_status,
         "created_at": f.created_at.isoformat() if f.created_at else None,
     }
 
@@ -34,6 +35,8 @@ def _farmer_row(f: Farmer) -> dict:
 async def list_farmers(
     registration_status: RegistrationStatus | None = None,
     verification_status: VerificationStatus | None = None,
+    id_document_status: IdentityStatus | None = None,
+    selfie_status: IdentityStatus | None = None,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     session: AsyncSession = Depends(get_session),
@@ -43,6 +46,10 @@ async def list_farmers(
         q = q.where(Farmer.registration_status == registration_status.value)
     if verification_status:
         q = q.where(Farmer.verification_status == verification_status.value)
+    if id_document_status:  # e.g. NEEDS_HELP -> field follow-up
+        q = q.where(Farmer.id_document_status == id_document_status.value)
+    if selfie_status:
+        q = q.where(Farmer.selfie_status == selfie_status.value)
     total = (await session.execute(select(func.count()).select_from(q.subquery()))).scalar_one()
     rows = (await session.execute(q.order_by(Farmer.created_at.desc()).limit(limit).offset(offset))).scalars().all()
     return {"total": total, "items": [_farmer_row(f) for f in rows]}
@@ -58,12 +65,14 @@ async def get_farmer(farmer_id: uuid.UUID, session: AsyncSession = Depends(get_s
     for farm in farms:
         crops = (await session.execute(select(FarmerCrop).where(FarmerCrop.farm_id == farm.id))).scalars().all()
         farm_out.append({
-            "id": str(farm.id), "name": farm.name, "village": farm.village, "district": farm.district,
-            "address": farm.address, "latitude": farm.latitude, "longitude": farm.longitude,
+            "id": str(farm.id), "name": farm.name, "full_address_text": farm.full_address_text,
+            "latitude": farm.latitude, "longitude": farm.longitude,
             "cultivation_area": farm.cultivation_area, "area_unit": farm.area_unit, "area_hectares": farm.area_hectares,
             "crops": [{"id": str(c.id), "name": c.name_raw, "normalized": c.name_normalized} for c in crops],
         })
     docs = (await session.execute(select(FarmDocument).where(FarmDocument.farmer_id == f.id))).scalars().all()
+    # identity images: metadata only (no storage key, no URL). Viewing them is a separate, audited step (phase 2).
+    ident = (await session.execute(select(IdentityDocument).where(IdentityDocument.farmer_id == f.id).order_by(IdentityDocument.created_at))).scalars().all()
     conv = (await session.execute(select(Conversation).where(Conversation.farmer_id == f.id))).scalar_one_or_none()
     history = (await session.execute(select(Verification).where(Verification.farmer_id == f.id).order_by(Verification.created_at))).scalars().all()
     recent = (
@@ -77,6 +86,12 @@ async def get_farmer(farmer_id: uuid.UUID, session: AsyncSession = Depends(get_s
             {"id": str(d.id), "type": d.doc_type, "storage_key": d.storage_key, "mime": d.mime_type,
              "size": d.size_bytes, "sha256": d.sha256, "caption": d.caption, "farm_id": str(d.farm_id) if d.farm_id else None}
             for d in docs
+        ],
+        "identity_documents": [
+            {"id": str(d.id), "kind": d.kind, "id_document_type": d.id_document_type, "status": d.status,
+             "mime": d.mime_type, "size": d.size_bytes, "attempt": d.attempt, "challenge": d.challenge,
+             "quality_result": d.quality_result, "uploaded_at": d.uploaded_at.isoformat() if d.uploaded_at else None}
+            for d in ident
         ],
         "conversation": None if conv is None else {
             "stage": conv.stage, "active_flow": conv.active_flow, "handoff": conv.handoff,

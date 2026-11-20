@@ -11,9 +11,7 @@ CORRECTABLE_FIELDS = (
     "full_name",
     "country",
     "farm_name",
-    "village",
-    "district",
-    "farm_address",
+    "full_address_text",
     "crops",
     "cultivation_area",
     "area_unit",
@@ -25,9 +23,12 @@ class ExtractedData(BaseModel):
     full_name: str | None = None
     country: str | None = Field(None, description="Country name as the farmer said it, or ISO alpha-2 code")
     farm_name: str | None = None
-    village: str | None = Field(None, description="Village or town of the farm")
-    district: str | None = None
-    farm_address: str | None = None
+    full_address_text: str | None = Field(
+        None,
+        description="The farm's address as ONE text, in the farmer's own words. While a follow-up for missing "
+        "parts is open, only what the farmer said in this message (the program joins it to the earlier part). "
+        "For a correction, the full corrected address.",
+    )
     crops: list[str] = Field(default_factory=list, description="Crops the farmer grows, one entry per crop")
     cultivation_area: float | None = Field(None, description="Numeric land size")
     area_unit: str | None = Field(None, description="Unit exactly as said: acres, hectares, ha, sqm ...")
@@ -63,6 +64,11 @@ class AIResponse(BaseModel):
     extracted_data: ExtractedData = Field(default_factory=ExtractedData)
     corrections: list[Correction] = Field(default_factory=list)
     missing_fields: list[str] = Field(default_factory=list, description="Advisory only")
+    address_missing_parts: list[str] = Field(
+        default_factory=list,
+        description="Advisory only. Expected address parts (from address_format in the state) that are clearly "
+        "missing from the farm address. Empty when the address is complete, or when a landmark is given.",
+    )
     confidence: float = Field(ge=0, le=1, default=0.5)
     field_confidence: dict[str, float] = Field(default_factory=dict)
     requires_clarification: bool = False
@@ -75,7 +81,7 @@ class AIResponse(BaseModel):
     def _none_to_empty(cls, v):
         return {} if v is None else v
 
-    @field_validator("corrections", "missing_fields", mode="before")
+    @field_validator("corrections", "missing_fields", "address_missing_parts", mode="before")
     @classmethod
     def _none_to_list(cls, v):
         return [] if v is None else v

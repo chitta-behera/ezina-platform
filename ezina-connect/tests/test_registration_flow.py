@@ -1,24 +1,28 @@
 """End-to-end registration workflow with scripted Claude responses (spec tests 10, 13-17 + variations)."""
 from datetime import timedelta
 
+import pytest
 from sqlalchemy import select
 
 from app.database import utcnow
 from app.enums import Intent
 from app.models import Conversation, Farm, FarmDocument, Farmer, FarmerCrop, Verification
 from app.schemas.ai_response import Correction
-from tests.conftest import E164, make_ai
+from app.workflows import address_flow
+from tests.conftest import BW_ADDRESS, E164, make_ai
+
+BW_EXAMPLE = address_flow.format_for("BW").example
 
 
 async def test_full_registration_happy_path(env):
-    await env.run_registration_until("district")
+    await env.run_registration_until("address")
     texts = env.graph.texts()
     assert "Welcome to Ezina" in texts[0]
     assert "Do you agree?" in texts[1] and env.graph.sent[1]["interactive"]["action"]["buttons"][0]["reply"]["id"] == "consent_agree"
     assert "full name" in texts[2]
     assert "Which country" in texts[3]
-    assert "village and district" in texts[4]
-    assert texts[5].endswith("Which district is Gaborone in?")  # templated: still on the same question
+    assert "What is the full address of your farm?" in texts[4] and BW_EXAMPLE in texts[4]  # Botswana example
+    assert texts[5].endswith("What crops do you grow at the moment?")
     assert (await env.conv()).stage == "COLLECT_CROPS"
 
 
@@ -28,7 +32,7 @@ async def test_full_registration_submits_and_creates_records(env):
     summary = env.graph.last()
     assert summary["interactive"]["type"] == "button"
     body = summary["interactive"]["body"]["text"]
-    for line in ("*Name:* John", "*Country:* Botswana", "Gaborone, South East district",
+    for line in ("*Name:* John", "*Country:* Botswana", BW_ADDRESS,
                  "*Crops:* Maize, Tomatoes", "*Land:* 5 acres", "received ✅", "1 farm photo"):
         assert line in body
     assert [b["reply"]["id"] for b in summary["interactive"]["action"]["buttons"]] == [
@@ -42,7 +46,8 @@ async def test_full_registration_submits_and_creates_records(env):
     assert farmer.registration_status == "SUBMITTED" and farmer.verification_status == "PENDING"
     assert farmer.consent_given and farmer.consent_at and farmer.country == "BW" and farmer.full_name == "John"
     (farm,) = await env.all(Farm)
-    assert (farm.village, farm.district, farm.cultivation_area, farm.area_unit) == ("Gaborone", "South East", 5, "acre")
+    assert (farm.full_address_text, farm.cultivation_area, farm.area_unit) == (BW_ADDRESS, 5, "acre")
+    assert not {"village", "district", "address"} & set(Farm.__table__.columns.keys())
     assert abs(farm.area_hectares - 2.0234) < 0.001 and farm.latitude == -24.6282
     crops = await env.all(FarmerCrop)
     assert {(c.name_raw, c.name_normalized) for c in crops} == {("maize", "maize"), ("tomatoes", "tomato")}
@@ -67,10 +72,10 @@ async def test_claude_never_called_for_buttons_or_yes(env):
 async def test_multiple_answers_in_one_message(env):
     await env.run_registration_until("consent")
     # Claude's draft is empty here, so Python's templated question for the first missing field is used.
-    env.claude.push(make_ai(full_name="John", village="Gaborone", crops=["maize"], cultivation_area=5, area_unit="acres"))
+    env.claude.push(make_ai(full_name="John", full_address_text="Gaborone, South East", crops=["maize"], cultivation_area=5, area_unit="acres"))
     await env.text("I am John from Gaborone, I grow maize on 5 acres")
     d = (await env.conv()).draft
-    assert (d["full_name"], d["village"], d["crops"], d["cultivation_area"]) == ("John", "Gaborone", ["maize"], 5)
+    assert (d["full_name"], d["full_address_text"], d["crops"], d["cultivation_area"]) == ("John", "Gaborone, South East", ["maize"], 5)
     assert d["area_unit"] == "acre"
     assert await env.stage() == "COLLECT_COUNTRY"  # first missing field; nothing already collected is re-asked
     assert env.graph.texts()[-1].endswith("Which country is your farm in?")
@@ -79,14 +84,14 @@ async def test_multiple_answers_in_one_message(env):
 async def test_multiple_answers_that_skip_ahead_ask_claude_to_word_the_real_next_step(env):
     await env.run_registration_until("consent")
     env.claude.push(
-        make_ai(full_name="John", country="Botswana", village="Gaborone", crops=["maize"], cultivation_area=5,
-                area_unit="acres", text="(drafted for the country question - must not be used)"),
-        make_ai(text="Thanks John! Which district is Gaborone in?"),  # compose call
+        make_ai(full_name="John", country="Botswana", full_address_text=BW_ADDRESS, crops=["maize"],
+                text="(drafted for the country question - must not be used)"),
+        make_ai(text="Thanks John! About how much land do you use for farming?"),  # compose call
     )
-    await env.text("John, Gaborone Botswana, maize on 5 acres")
+    await env.text("John, Botswana, maize, " + BW_ADDRESS)
     assert env.claude.contexts[-1].mode == "compose"
-    assert await env.stage() == "COLLECT_FARM_DETAILS"
-    assert env.graph.texts()[-1] == "Thanks John! Which district is Gaborone in?"
+    assert await env.stage() == "COLLECT_CULTIVATION_AREA"
+    assert env.graph.texts()[-1] == "Thanks John! About how much land do you use for farming?"
 
 
 # 16. corrections -----------------------------------------------------------------
@@ -107,7 +112,7 @@ async def test_correction_at_review_updates_only_that_field_and_returns_to_revie
 async def test_correction_mid_flow_name(env):
     await env.run_registration_until("country")
     env.claude.push(make_ai(Intent.CORRECT_INFORMATION, corrections=[Correction(field="full_name", new_value="John Mokoena")],
-                            text="Thanks, John Mokoena. Which village and district is your farm in?"))
+                            text="Thanks, John Mokoena. What is the full address of your farm?"))
     await env.text("sorry, my name is John Mokoena")
     assert (await env.conv()).draft["full_name"] == "John Mokoena"
     assert await env.stage() == "COLLECT_FARM_DETAILS"  # flow continued, nothing re-asked
@@ -154,7 +159,7 @@ async def test_claude_reply_that_asks_for_collected_data_falls_back_to_template(
     # Claude wrongly asks for the name again -> guard rejects -> templated country question
     env.claude.push(make_ai(country="Botswana", text="Thanks! What is your name?"))
     await env.text("Botswana")
-    assert env.graph.texts()[-1].endswith("Which village and district is your farm in?")
+    assert env.graph.texts()[-1].endswith(f"For example: _{BW_EXAMPLE}_")  # Python's question, with the BW example
 
 
 async def test_claude_reply_promising_buyers_is_replaced(env):
@@ -167,7 +172,7 @@ async def test_claude_reply_promising_buyers_is_replaced(env):
 # address instead of location pin ---------------------------------------------------
 async def test_typed_address_triggers_location_sharing_instructions(env):
     await env.run_registration_until("area")
-    env.claude.push(make_ai(farm_address="Plot 12, Tlokweng Road"))
+    env.claude.push(make_ai(full_address_text="Plot 12, Tlokweng Road"))
     await env.text("Plot 12, Tlokweng Road")
     last = env.graph.texts()[-1]
     assert "Attach" in last and "Location" in last and "don't type coordinates" in last
@@ -186,6 +191,8 @@ async def test_typed_coordinates_are_never_accepted(env):
 async def test_location_and_photos_are_optional(env):
     await env.run_registration_until("area")
     await env.button("loc_skip")
+    await env.button("id_later")
+    await env.button("selfie_later")
     await env.button("farmphoto_skip")
     await env.button("cropphoto_skip")
     assert await env.stage() == "REVIEW_REGISTRATION"
@@ -197,6 +204,8 @@ async def test_location_and_photos_are_optional(env):
 async def test_location_shared_after_registration_updates_the_farm(env):
     await env.run_registration_until("area")
     await env.button("loc_skip")
+    await env.button("id_later")
+    await env.button("selfie_later")
     await env.button("farmphoto_skip")
     await env.button("cropphoto_skip")
     await env.button("review_confirm")
@@ -210,7 +219,7 @@ async def test_location_shared_after_registration_updates_the_farm(env):
 
 # 15. pause and resume ---------------------------------------------------------------
 async def test_resume_next_day_continues_from_next_missing_field(env):
-    await env.run_registration_until("country")  # name and country saved, village/district next
+    await env.run_registration_until("country")  # name and country saved, the address next
     async with env.c.db.sessionmaker() as s, s.begin():
         conv = (await s.execute(select(Conversation))).scalars().one()
         conv.last_interaction_at = utcnow() - timedelta(days=1)
@@ -219,7 +228,7 @@ async def test_resume_next_day_continues_from_next_missing_field(env):
     await env.text("Hello again")
     assert len(env.graph.sent) == n + 1
     msg = env.graph.texts()[-1]
-    assert msg.startswith("Welcome back, John!") and "village and district" in msg
+    assert msg.startswith("Welcome back, John!") and "full address of your farm" in msg
     d = (await env.conv()).draft
     assert d["full_name"] == "John" and d["country"] == "BW"  # state survived in the database
 
@@ -229,10 +238,10 @@ async def test_resume_with_answer_after_pause_greets_and_saves(env):
     async with env.c.db.sessionmaker() as s, s.begin():
         conv = (await s.execute(select(Conversation))).scalars().one()
         conv.last_interaction_at = utcnow() - timedelta(days=2)
-    env.claude.push(make_ai(village="Gaborone", district="South East", text="Thanks! What crops do you grow?"))
+    env.claude.push(make_ai(full_address_text="Gaborone, South East", text="Thanks! What crops do you grow?"))
     await env.text("Gaborone, South East")
     assert env.graph.texts()[-1].startswith("Welcome back, John!")
-    assert (await env.conv()).draft["district"] == "South East"
+    assert (await env.conv()).draft["full_address_text"] == "Gaborone, South East"
 
 
 # 17. cancel / opt out -----------------------------------------------------------------
@@ -300,6 +309,18 @@ async def test_consent_declined_stores_nothing(env):
     assert "ready to register" in env.graph.texts()[-1]
 
 
+@pytest.mark.parametrize("answer", ["No", "not now", "No thanks"])
+async def test_no_to_the_welcome_question_is_acknowledged_and_not_re_asked(env, answer):
+    env.claude.push(make_ai(Intent.GREETING))
+    await env.text("Hi")
+    assert "Would you like to register" in env.graph.texts()[-1]
+    await env.text(answer)
+    last = env.graph.texts()[-1]
+    assert "ready to register" in last and "Would you like to register" not in last
+    f = await env.farmer()
+    assert not f.consent_given and f.full_name is None and await env.stage() == "START"
+
+
 async def test_no_data_saved_before_consent(env):
     env.claude.push(make_ai(Intent.REGISTER_FARMER))
     await env.text("I want to register")
@@ -326,7 +347,7 @@ async def test_other_intent_mid_registration_finishes_registration_first(env):
     env.claude.push(make_ai(Intent.SHARE_HARVEST_AVAILABILITY))
     await env.text("I have 2 tonnes of maize ready")
     assert "finish your registration first" in env.graph.texts()[-1]
-    assert "village and district" in env.graph.texts()[-1]
+    assert "full address of your farm" in env.graph.texts()[-1]
 
 
 async def test_unregistered_farmer_asking_for_harvest_is_guided_to_register(env):
@@ -348,14 +369,14 @@ async def test_general_question_answered_then_current_question_repeated(env):
     env.claude.push(make_ai(Intent.GENERAL_QUESTION, text="Ezina connects farmers with buyers. It is free."))
     await env.text("what is ezina?")
     assert env.graph.texts()[-2] == "Ezina connects farmers with buyers. It is free."
-    assert "village and district" in env.graph.texts()[-1]
+    assert "full address of your farm" in env.graph.texts()[-1]
 
 
 async def test_claude_unavailable_falls_back_to_templated_question(env):
     await env.run_registration_until("country")
     env.claude.push(None)
     await env.text("Gaborone")
-    assert "trouble understanding" in env.graph.texts()[-1] and "village and district" in env.graph.texts()[-1]
+    assert "trouble understanding" in env.graph.texts()[-1] and "full address of your farm" in env.graph.texts()[-1]
     assert await env.stage() == "COLLECT_FARM_DETAILS"
 
 
@@ -401,5 +422,8 @@ async def test_all_optional_steps_are_asked_consistently(env):
         assert "📎" in body and "skip for now" in body.lower()
         seen[stage_name] = body
         await env.button(skip_id)
+        if skip_id == "loc_skip":  # the ID document and selfie steps sit between the location and the photos
+            await env.button("id_later")
+            await env.button("selfie_later")
     assert await env.stage() == "REVIEW_REGISTRATION"
     assert "photo of your farm" in seen["farm"] and "photo of your crops" in seen["crops"]

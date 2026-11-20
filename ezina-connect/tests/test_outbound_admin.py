@@ -205,7 +205,7 @@ async def test_anonymise_farmer_removes_personal_data(env):
     fid = await _registered(env)
     async with env.c.db.sessionmaker() as s, s.begin():
         f = await s.get(type(await env.farmer()), fid)
-        await farmer_service.anonymize_farmer(s, f, env.c.storage)
+        await farmer_service.anonymize_farmer(s, f, env.c.storage, identity=env.c.identity)
     f = await env.farmer(f"deleted:{fid}")
     assert f.full_name is None and f.deleted_at and f.anonymized_at and f.opted_out
     assert await env.all(FarmDocument) == []

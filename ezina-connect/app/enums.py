@@ -26,6 +26,8 @@ class Stage(StrEnum):
     COLLECT_CROPS = "COLLECT_CROPS"
     COLLECT_CULTIVATION_AREA = "COLLECT_CULTIVATION_AREA"
     COLLECT_GPS_LOCATION = "COLLECT_GPS_LOCATION"
+    COLLECT_ID_DOCUMENT = "COLLECT_ID_DOCUMENT"
+    COLLECT_SELFIE = "COLLECT_SELFIE"
     COLLECT_FARM_PHOTOS = "COLLECT_FARM_PHOTOS"
     COLLECT_CROP_PHOTOS = "COLLECT_CROP_PHOTOS"
     REVIEW_REGISTRATION = "REVIEW_REGISTRATION"
@@ -53,6 +55,7 @@ class Intent(StrEnum):
     REQUEST_HUMAN_SUPPORT = "REQUEST_HUMAN_SUPPORT"
     OPT_OUT = "OPT_OUT"
     GENERAL_QUESTION = "GENERAL_QUESTION"
+    SUBMIT_IDENTITY_DOCUMENTS = "SUBMIT_IDENTITY_DOCUMENTS"
     UNKNOWN = "UNKNOWN"
 
 
@@ -60,6 +63,26 @@ class DocumentType(StrEnum):
     FARM_PHOTO = "FARM_PHOTO"
     CROP_PHOTO = "CROP_PHOTO"
     OTHER = "OTHER"
+
+
+class IdentityStatus(StrEnum):
+    """farmers.id_document_status / farmers.selfie_status"""
+    NOT_PROVIDED = "NOT_PROVIDED"
+    RECEIVED = "RECEIVED"
+    NEEDS_HELP = "NEEDS_HELP"  # too many failed attempts, or no usable ID: operations follow-up
+    DEFERRED = "DEFERRED"  # farmer chose "Send later"
+
+
+class IdentityKind(StrEnum):
+    ID_FRONT = "ID_FRONT"
+    ID_BACK = "ID_BACK"
+    SELFIE = "SELFIE"
+
+
+class IdentityDocStatus(StrEnum):
+    ACCEPTED = "ACCEPTED"
+    REJECTED = "REJECTED"
+    SUPERSEDED = "SUPERSEDED"
 
 
 class Direction(StrEnum):

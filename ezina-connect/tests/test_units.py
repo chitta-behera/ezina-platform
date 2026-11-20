@@ -106,9 +106,15 @@ def test_state_machine_resolution_is_derived_from_draft():
     assert resolve_stage(Stage.SELECT_LANGUAGE, d, 1) == Stage.COLLECT_NAME
     d.full_name, d.country = "John", "BW"
     assert resolve_stage(Stage.COLLECT_NAME, d, 1) == Stage.COLLECT_FARM_DETAILS
-    d.village, d.district, d.crops, d.cultivation_area = "G", "SE", ["maize"], 5
+    d.full_address_text, d.address_missing = "Plot 1, Gaborone", ["district"]
+    assert resolve_stage(Stage.COLLECT_NAME, d, 1) == Stage.COLLECT_FARM_DETAILS  # a pending follow-up keeps the stage
+    d.address_missing, d.crops, d.cultivation_area = [], ["maize"], 5
     assert resolve_stage(Stage.COLLECT_NAME, d, 1) == Stage.COLLECT_GPS_LOCATION
-    d.location_skipped = d.farm_photos_skipped = d.crop_photos_skipped = True
+    d.location_skipped = True
+    assert resolve_stage(Stage.COLLECT_NAME, d, 1) == Stage.COLLECT_ID_DOCUMENT
+    d.id_deferred = True
+    assert resolve_stage(Stage.COLLECT_NAME, d, 1) == Stage.COLLECT_SELFIE
+    d.selfie_deferred = d.farm_photos_skipped = d.crop_photos_skipped = True
     assert resolve_stage(Stage.COLLECT_NAME, d, 1) == Stage.REVIEW_REGISTRATION
     # control / event stages are never overridden by the draft
     for st in (Stage.CONSENT, Stage.START, Stage.CANCELLED, Stage.HUMAN_HANDOFF, Stage.COMPLETED):
@@ -117,8 +123,9 @@ def test_state_machine_resolution_is_derived_from_draft():
 
 
 def test_min_farm_photos_is_configurable():
-    d = Draft(preferred_language="en", full_name="J", country="BW", village="a", district="b", crops=["x"],
-              cultivation_area=1, location_skipped=True, farm_photo_ids=["1"], crop_photos_skipped=True)
+    d = Draft(preferred_language="en", full_name="J", country="BW", full_address_text="Plot 1, Gaborone", crops=["x"],
+              cultivation_area=1, location_skipped=True, id_deferred=True, selfie_deferred=True,
+              farm_photo_ids=["1"], crop_photos_skipped=True)
     assert resolve_stage(Stage.COLLECT_NAME, d, 1) == Stage.REVIEW_REGISTRATION
     assert resolve_stage(Stage.COLLECT_NAME, d, 2) == Stage.COLLECT_FARM_PHOTOS
 
@@ -145,7 +152,11 @@ def test_guard_rejects_asking_for_collected_data_but_allows_others():
     d = Draft(full_name="John", country="BW")
     assert check_reply("Which country is your farm in?", d)[1] == "asks_collected_country"
     assert check_reply("What is your name?", d)[1] == "asks_collected_full_name"
-    assert check_reply("Thanks John! Which village is your farm in?", d)[0]
+    assert check_reply("Thanks John! What is the full address of your farm?", d)[0]  # not collected yet
+    d.full_address_text = "Plot 1, Gaborone"
+    assert check_reply("What is the full address of your farm?", d)[1] == "asks_collected_full_address_text"
+    d.address_missing = ["district"]  # follow-ups for missing parts are still being collected
+    assert check_reply("What is the full address of your farm?", d)[0]
     assert check_reply("Your registration is verified.", d, status_facts_supplied=True)[0]
 
 

@@ -8,6 +8,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.workflows.redaction import redact_id_numbers
+
 _E164 = re.compile(r"^\+[1-9]\d{7,14}$")
 
 
@@ -67,6 +69,7 @@ class WAMessage(_Base):
     text: WAText | None = None
     location: WALocation | None = None
     image: WAMedia | None = None
+    document: WAMedia | None = None  # only accepted at COLLECT_ID_DOCUMENT (filename is never read)
     interactive: WAInteractive | None = None
     button: WAButton | None = None
 
@@ -147,6 +150,8 @@ class NormalizedInbound:
             "caption": self.caption,
             "profile_name": self.profile_name,
         }
+        if self.extra.get("id_number_redacted"):
+            d["id_number_redacted"] = True
         return {k: v for k, v in d.items() if v is not None}
 
 
@@ -163,12 +168,18 @@ def normalize_message(msg: WAMessage, profile_name: str | None) -> NormalizedInb
         profile_name=profile_name,
     )
     if msg.type == "text" and msg.text:
-        n.text = msg.text.body
+        # Farmers are never asked for ID numbers; if one is typed, it is removed before anything is stored.
+        n.text, redacted = redact_id_numbers(msg.text.body)
+        if redacted:
+            n.extra["id_number_redacted"] = True
     elif msg.type == "location" and msg.location:
         n.latitude, n.longitude = msg.location.latitude, msg.location.longitude
         n.location_name, n.location_address = msg.location.name, msg.location.address
     elif msg.type == "image" and msg.image:
-        n.media_id, n.mime_type, n.caption = msg.image.id, msg.image.mime_type, msg.image.caption
+        n.media_id, n.mime_type = msg.image.id, msg.image.mime_type
+        n.caption, _ = redact_id_numbers(msg.image.caption)
+    elif msg.type == "document" and msg.document:
+        n.media_id, n.mime_type = msg.document.id, msg.document.mime_type  # no caption, no filename
     elif msg.type == "interactive" and msg.interactive:
         reply = msg.interactive.button_reply or msg.interactive.list_reply
         if reply:

@@ -8,9 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
 from app.database import utcnow
-from app.enums import RegistrationStatus, VerificationStatus
-from app.models import Farm, FarmDocument, Farmer, FarmerCrop, Message, Verification
+from app.enums import IdentityStatus, RegistrationStatus, VerificationStatus
+from app.models import Farm, FarmDocument, Farmer, FarmerCrop, IdentityDocument, Message, Verification
 from app.schemas.conversation import Draft
+from app.workflows import identity_flow
 from app.workflows.validators import normalize_crop
 
 
@@ -31,11 +32,17 @@ async def submit_registration(session: AsyncSession, farmer: Farmer, draft: Draf
     farmer.country = draft.country
     farmer.preferred_language = draft.preferred_language
     farmer.registration_status = RegistrationStatus.SUBMITTED
-    farmer.verification_status = VerificationStatus.PENDING
+    farmer.id_document_status = identity_flow.id_status(draft).value
+    farmer.selfie_status = identity_flow.selfie_status(draft).value
+    # Verification starts only when BOTH the ID document and the selfie have been received.
+    identity_complete = draft.id_received and draft.selfie_received
+    farmer.verification_status = (
+        VerificationStatus.PENDING if identity_complete else VerificationStatus.NOT_SUBMITTED
+    )
 
     farm = Farm(
-        farmer_id=farmer.id, name=draft.farm_name, village=draft.village, district=draft.district,
-        address=draft.farm_address, latitude=draft.latitude, longitude=draft.longitude,
+        farmer_id=farmer.id, name=draft.farm_name, full_address_text=draft.full_address_text or "",
+        latitude=draft.latitude, longitude=draft.longitude,
         location_name=draft.location_name, location_address=draft.location_address,
         cultivation_area=draft.cultivation_area, area_unit=draft.area_unit, area_hectares=draft.area_hectares,
     )
@@ -55,9 +62,28 @@ async def submit_registration(session: AsyncSession, farmer: Farmer, draft: Draf
         for d in docs:
             d.farm_id = farm.id
 
-    session.add(Verification(farmer_id=farmer.id, status=VerificationStatus.PENDING, notes="Submitted via WhatsApp"))
+    if identity_complete:
+        session.add(Verification(farmer_id=farmer.id, status=VerificationStatus.PENDING, notes="Submitted via WhatsApp"))
     await session.flush()
     return farm
+
+
+async def complete_identity(
+    session: AsyncSession, farmer: Farmer, id_status: IdentityStatus, selfie_status: IdentityStatus
+) -> bool:
+    """Later upload (SUBMIT_IDENTITY_DOCUMENTS): update the identity statuses; open verification once both are
+    RECEIVED. Returns True when verification just moved to PENDING."""
+    farmer.id_document_status, farmer.selfie_status = id_status.value, selfie_status.value
+    both = id_status == IdentityStatus.RECEIVED and selfie_status == IdentityStatus.RECEIVED
+    if both and farmer.registration_status == RegistrationStatus.SUBMITTED and farmer.verification_status in (
+        VerificationStatus.NOT_SUBMITTED, VerificationStatus.NEEDS_MORE_INFO
+    ):
+        farmer.verification_status = VerificationStatus.PENDING
+        session.add(Verification(farmer_id=farmer.id, status=VerificationStatus.PENDING,
+                                 notes="Identity documents received after registration"))
+        await session.flush()
+        return True
+    return False
 
 
 async def record_verification(
@@ -83,15 +109,25 @@ async def delete_draft_documents(session: AsyncSession, farmer_id: uuid.UUID, st
         await session.execute(delete(FarmDocument).where(FarmDocument.id.in_([d.id for d in docs])))
 
 
-async def anonymize_farmer(session: AsyncSession, farmer: Farmer, storage) -> None:
-    """Data-deletion request: strip personal data, delete media, keep an inert audit shell."""
+async def anonymize_farmer(session: AsyncSession, farmer: Farmer, storage, identity=None) -> None:
+    """Data-deletion request: strip personal data, delete media, keep an inert audit shell.
+
+    `identity` (the IdentityService) hard-deletes ID photos and selfies from the private identity storage; it is
+    required whenever the farmer has any, so images can never be left behind.
+    """
+    if identity is not None:
+        await identity.delete_all(session, farmer.id)
+    elif (await session.execute(select(IdentityDocument.id).where(IdentityDocument.farmer_id == farmer.id))).first():
+        raise RuntimeError("anonymize_farmer needs the identity service to delete this farmer's identity images")
+    farmer.id_document_status = farmer.selfie_status = IdentityStatus.NOT_PROVIDED.value
     docs = (await session.execute(select(FarmDocument).where(FarmDocument.farmer_id == farmer.id))).scalars().all()
     for d in docs:
         await storage.delete(d.storage_key)
     await session.execute(delete(FarmDocument).where(FarmDocument.farmer_id == farmer.id))
     farms = (await session.execute(select(Farm).where(Farm.farmer_id == farmer.id))).scalars().all()
     for f in farms:
-        f.name = f.village = f.district = f.address = f.location_name = f.location_address = None
+        f.name = f.location_name = f.location_address = None
+        f.full_address_text = ""  # NOT NULL column: erased, not removed
         f.latitude = f.longitude = None
     # the audit log keeps the shape of the conversation but not its personal content
     await session.execute(

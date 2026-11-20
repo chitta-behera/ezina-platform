@@ -5,6 +5,7 @@ from __future__ import annotations
 from app.config import Settings
 from app.enums import Stage, VerificationStatus
 from app.schemas.conversation import Button, Draft, ListRow, Reply
+from app.workflows import address_flow, identity_flow
 from app.workflows.validators import UNIT_LABEL, country_name
 
 # ids of interactive replies handled deterministically by Python
@@ -15,6 +16,9 @@ BTN_CROPPHOTO_SKIP = "cropphoto_skip"
 BTN_REVIEW_CONFIRM, BTN_REVIEW_EDIT, BTN_REVIEW_CANCEL = "review_confirm", "review_edit", "review_cancel"
 BTN_YES, BTN_NO = "confirm_yes", "confirm_no"
 BTN_CANCEL_YES, BTN_CANCEL_NO = "cancel_yes", "cancel_no"
+BTN_ID_LATER, BTN_SELFIE_LATER, BTN_ID_CHANGE = "id_later", "selfie_later", "id_change"
+BTN_IDENTITY_START = "identity_start"
+IDTYPE_PREFIX, IDTYPE_NONE = "idtype_", "idtype_none"
 LANG_PREFIX = "lang_"
 
 WELCOME = (
@@ -34,7 +38,8 @@ def consent_reply() -> Reply:
     return Reply(
         body=(
             "Great! To register, we'll save your name, farm details, location and photos "
-            "so buyers can find you. Do you agree?"
+            "so buyers can find you. To verify you, we'll also ask for a photo of your ID card and a selfie. "
+            "These are kept private and used only for verification. Do you agree?"
         ),
         buttons=[Button(BTN_CONSENT_YES, "Agree"), Button(BTN_CONSENT_NO, "Not now")],
     )
@@ -68,17 +73,17 @@ def stage_reply(stage: Stage, draft: Draft, settings: Settings) -> Reply:
     if stage == Stage.COLLECT_COUNTRY:
         return Reply("Which country is your farm in?")
     if stage == Stage.COLLECT_FARM_DETAILS:
-        if draft.village and not draft.district:
-            return Reply(f"Which district is {draft.village} in?")
-        if draft.district and not draft.village:
-            return Reply(f"Which village or town in {draft.district} is your farm in?")
-        return Reply("Which village and district is your farm in?")
+        return address_prompt(draft)
     if stage == Stage.COLLECT_CROPS:
         return Reply("What crops do you grow at the moment?")
     if stage == Stage.COLLECT_CULTIVATION_AREA:
         return Reply("About how much land do you use for farming? For example: *5 acres* or *2 hectares*.")
     if stage == Stage.COLLECT_GPS_LOCATION:
         return location_prompt()
+    if stage == Stage.COLLECT_ID_DOCUMENT:
+        return id_prompt(draft, settings)
+    if stage == Stage.COLLECT_SELFIE:
+        return selfie_prompt(draft)
     if stage == Stage.COLLECT_FARM_PHOTOS:
         return photo_prompt("farm", BTN_FARMPHOTO_SKIP)
     if stage == Stage.COLLECT_CROP_PHOTOS:
@@ -114,16 +119,77 @@ def location_prompt(extra: str = "") -> Reply:
     )
 
 
+def address_question(country: str | None) -> str:
+    """The first address question: wording, a short instruction and an example for the farmer's country."""
+    fmt = address_flow.format_for(country)
+    return "\n".join(["What is the full address of your farm?", fmt.instruction, f"For example: _{fmt.example}_"])
+
+
+def address_followup(missing: list[str]) -> str:
+    return f"Thanks! What is the *{address_flow.join_parts(missing)}* of your farm? Please send only that part."
+
+
+def address_prompt(draft: Draft) -> Reply:
+    """Ask for the address, or (after an incomplete answer) only for the parts that are still missing."""
+    if draft.address_missing:
+        return Reply(address_followup(draft.address_missing))
+    return Reply(address_question(draft.country))
+
+
+def id_prompt(draft: Draft, settings: Settings) -> Reply:
+    """ID type list (filtered by country), then the front / back photo request. Never asks for a number."""
+    lang = draft.preferred_language
+    if not draft.id_type:
+        rows = [ListRow(f"{IDTYPE_PREFIX}{t.code}", t.name(lang)[:24]) for t in identity_flow.id_types(draft.country)]
+        rows.append(ListRow(IDTYPE_NONE, "I don't have any", "I don't have any of these"))
+        rows.append(ListRow(BTN_ID_LATER, "Send later"))
+        return Reply(
+            body="Now, to verify you, which ID card can you share? It is kept private and used only for verification.",
+            list_rows=rows, list_button_label="Choose ID",
+        )
+    t = identity_flow.find_type(draft.country, draft.id_type)
+    name = t.name(lang) if t else "ID"
+    side = "back" if draft.id_front_doc else "front"
+    lines = [
+        f"Please send a clear photo of the *{side}* of your {name}. "
+        "Put it on a flat surface in good light, with all 4 corners showing."
+    ]
+    if t and t.mask and side == "front":
+        lines.append("Before you take the photo, please *cover the first 8 digits* of the number.")
+    lines.append("Please don't type the ID number, I only need the photo.")
+    return Reply(
+        body="\n".join(lines),
+        buttons=[Button(BTN_ID_LATER, "Send later"), Button(BTN_ID_CHANGE, "Change ID type")],
+    )
+
+
+def selfie_prompt(draft: Draft) -> Reply:
+    challenge = f" and {identity_flow.challenge_text(draft.selfie_challenge)}" if draft.selfie_challenge else ""
+    return Reply(
+        body=(
+            f"Last step for verification: please take a *new selfie* now with your front camera{challenge}. "
+            "Show your face clearly (no sunglasses or cap). It is kept private and used only for verification."
+        ),
+        buttons=[Button(BTN_SELFIE_LATER, "Send later")],
+    )
+
+
+def _received(flag: bool) -> str:
+    return "received ✅" if flag else "pending"
+
+
 def review_reply(draft: Draft) -> Reply:
     lines = ["Here is your registration summary:"]
     lines.append(f"*Name:* {draft.full_name}")
     lines.append(f"*Country:* {country_name(draft.country)}")
-    lines.append(f"*Village/Town:* {draft.village}, {draft.district} district")
+    lines.append(f"*Address:* {draft.full_address_text}")
     if draft.farm_name:
         lines.append(f"*Farm name:* {draft.farm_name}")
     lines.append(f"*Crops:* {_crops_display(draft.crops)}")
     lines.append(f"*Land:* {area_display(draft)}")
     lines.append("*Location:* received ✅" if draft.has_location else "*Location:* not shared yet")
+    lines.append(f"*ID document:* {_received(draft.id_received)}")
+    lines.append(f"*Selfie:* {_received(draft.selfie_received)}")
     n_farm, n_crop = len(draft.farm_photo_ids), len(draft.crop_photo_ids)
     photos = []
     if n_farm:
@@ -140,7 +206,7 @@ def review_reply(draft: Draft) -> Reply:
 
 
 def edit_prompt() -> Reply:
-    return Reply("Sure! What would you like to change? For example: _change land to 4 hectares_.")
+    return Reply("Sure! What would you like to change? For example: _change land to 4 hectares_. (Your ID, selfie and photos can't be changed.)")
 
 
 def confirm_field_reply(field_label: str, value_text: str) -> Reply:
@@ -161,8 +227,7 @@ def validation_error_reply(field: str, example: str) -> Reply:
     nice = {
         "full_name": "your name",
         "country": "the country",
-        "village": "the village or town",
-        "district": "the district",
+        "full_address_text": "the address",
         "crops": "your crops",
         "cultivation_area": "the land size",
         "area_unit": "the land size",
@@ -180,6 +245,34 @@ REGISTERED_SUBMITTED = (
     "Thank you for registering with Ezina. Your farmer registration has been submitted and is pending "
     "verification. Our team will contact you once the verification process is complete."
 )
+
+
+def submitted_reply(id_received: bool, selfie_received: bool) -> Reply:
+    """After confirmation. Verification only starts once both the ID document and the selfie are received."""
+    if id_received and selfie_received:
+        return Reply(REGISTERED_SUBMITTED)
+    missing = " and ".join(x for x, ok in (("ID document photo", id_received), ("selfie", selfie_received)) if not ok)
+    return Reply(
+        "Thank you for registering with Ezina. Your farmer registration has been submitted. "
+        f"To start verification we still need your {missing}. Verification starts once we receive it. "
+        "Tap *Send now* whenever you are ready.",
+        buttons=[Button(BTN_IDENTITY_START, "Send now")],
+    )
+
+
+IDENTITY_COMPLETE = (
+    "Thank you! We have everything we need. Your registration is now pending verification. "
+    "Our team will contact you once the verification process is complete."
+)
+IDENTITY_PARTIAL = "Thank you! Verification will start once we receive the remaining item."
+IDENTITY_ALREADY = "We already have your ID document and selfie. Our team will contact you about verification."
+ID_NUMBER_REFUSED = "For your safety please don't type ID numbers. I only need a photo of the ID card."
+ID_FIRST_CHOOSE_TYPE = "First, please choose which ID card you want to send."
+SELFIE_NOT_FILE = "For the selfie I need a live photo from your front camera, not a file."
+ID_DEFERRED = "No problem, you can send it later. Just message us when you are ready."
+ID_NEEDS_HELP = "Thank you. That is okay, someone from the Ezina team will help you with this step."
+SELFIE_NEW_CHALLENGE = "That took a little long, so here is a new challenge."
+
 CANCELLED_DONE = "Your registration has been cancelled and your saved answers removed. Message us any time to start again."
 NOT_NOW = "No problem! Message us whenever you're ready to register."
 OPTED_OUT = "You have been unsubscribed and won't receive more messages from Ezina. Send START any time to rejoin."
@@ -187,6 +280,14 @@ OPTED_IN = "Welcome back! You'll receive messages from Ezina again."
 HANDOFF = "I'm passing you to a member of the Ezina team. They will contact you here soon."
 RATE_LIMITED = "You are sending messages very quickly. Please wait a moment and try again."
 GENERIC_ERROR = "Sorry, something went wrong on our side. Please send your message again in a moment."
+REVIEW_NO_MEDIA_EDIT = (
+    "Your ID document, selfie and photos can't be changed here. You can edit your other details "
+    "(name, country, farm name, address, crops, land size, language) or tap Confirm."
+)
+REVIEW_COUNTRY_LOCKED = (
+    "The country can't be changed here because it no longer matches your ID document. "
+    "You can edit your other details or tap Confirm."
+)
 REGISTER_FIRST = "To do that, please register first. Would you like to register your farm now? It's free."
 NOT_YET = "That feature is coming soon. For now I can help you with your registration and its status."
 FINISH_FIRST = "Let's finish your registration first, then we can do that."

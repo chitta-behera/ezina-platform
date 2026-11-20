@@ -3,14 +3,17 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import io
 import itertools
 import json
+import os
 import time
 from pathlib import Path
 
 import httpx
 import pytest
 import pytest_asyncio
+from PIL import Image
 from sqlalchemy import select
 
 from app.config import Settings
@@ -36,9 +39,24 @@ E164 = "+26771234567"
 JPEG = b"\xff\xd8\xff\xe0" + b"x" * 200
 
 
+def make_image(size=(800, 800), fmt="JPEG") -> bytes:
+    """A real, decodable image that is unique on every call (identity images are checked for reuse by hash)."""
+    small = Image.frombytes("RGB", (16, 16), os.urandom(16 * 16 * 3))
+    buf = io.BytesIO()
+    small.resize(size).save(buf, format=fmt)
+    return buf.getvalue()
+
+
+PDF = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF"
+
+
+BW_ADDRESS = "Plot 1234, near Mogoditshane clinic, Mogoditshane, Kweneng District"
+
+
 def make_ai(intent=Intent.PROVIDE_INFORMATION, *, text="", conf=0.95, lang="en", corrections=None,
-            clarify=False, field_conf=None, **extracted) -> AIResponse:
+            clarify=False, field_conf=None, address_missing=None, **extracted) -> AIResponse:
     return AIResponse(
+        address_missing_parts=address_missing or [],
         intent=intent, extracted_data=ExtractedData(**extracted), corrections=corrections or [],
         confidence=conf, field_confidence=field_conf or {}, suggested_response=text, language=lang,
         requires_clarification=clarify,
@@ -165,9 +183,29 @@ class Env:
         self._msg(p)["location"].update(latitude=lat, longitude=lon)
         return await self.post(p)
 
-    async def image(self, wa_id: str = WA_ID, media_id: str = "MEDIA1"):
-        p = self.fixture("image", wa_id)
+    async def image(self, wa_id: str = WA_ID, media_id: str = "MEDIA1", ts: int | None = None):
+        p = self.fixture("image", wa_id, ts=ts)
         self._msg(p)["image"]["id"] = media_id
+        return await self.post(p)
+
+    # ---- identity (ID document / selfie) helpers
+    def add_media(self, *, size=(800, 800), fmt="JPEG", mime="image/jpeg", data: bytes | None = None) -> str:
+        mid = f"IDMEDIA{next(self._n)}"
+        self.graph.media[mid] = (mime, data if data is not None else make_image(size, fmt))
+        return mid
+
+    async def identity_image(self, wa_id: str = WA_ID, ts: int | None = None, **kw):
+        """Send a fresh, valid image (as a WhatsApp image message) unless kw says otherwise."""
+        return await self.image(wa_id, self.add_media(**kw), ts=ts)
+
+    async def document(self, wa_id: str = WA_ID, *, media_id: str | None = None, mime: str = "application/pdf",
+                       data: bytes | None = None):
+        if data is None and mime == "application/pdf":
+            data = PDF
+        fmt = {"image/png": "PNG", "image/webp": "WEBP"}.get(mime, "JPEG")
+        mid = media_id or self.add_media(mime=mime, data=data, fmt=fmt)
+        p = self.fixture("document", wa_id)
+        self._msg(p)["document"].update(id=mid, mime_type=mime)
         return await self.post(p)
 
     # ---- db helpers
@@ -196,8 +234,8 @@ class Env:
     async def run_registration_until(self, step: str) -> None:
         """Drive the happy path up to a named point (uses scripted Claude)."""
         ai = self.claude.push
-        await_steps = ["greet", "consent", "name", "country", "village", "district", "crops", "area",
-                       "location", "farm_photo", "crop_skip", "confirm"]
+        await_steps = ["greet", "consent", "name", "country", "address", "crops", "area",
+                       "location", "id_type", "id_front", "selfie", "farm_photo", "crop_skip", "confirm"]
         idx = await_steps.index(step)
         for i, s in enumerate(await_steps[: idx + 1]):
             if s == "greet":
@@ -210,14 +248,11 @@ class Env:
                 ai(make_ai(full_name="John", text="Thank you, John. Which country is your farm in?"))
                 await self.text("John")
             elif s == "country":
-                ai(make_ai(country="Botswana", text="Which village and district is your farm in?"))
+                ai(make_ai(country="Botswana", text="What is the full address of your farm?"))
                 await self.text("Botswana")
-            elif s == "village":
-                ai(make_ai(village="Gaborone"))
-                await self.text("Gaborone")
-            elif s == "district":
-                ai(make_ai(district="South East", text="What crops do you grow at the moment?"))
-                await self.text("South East district")
+            elif s == "address":
+                ai(make_ai(full_address_text=BW_ADDRESS, text="What crops do you grow at the moment?"))
+                await self.text(BW_ADDRESS)
             elif s == "crops":
                 ai(make_ai(crops=["maize", "tomatoes"], text="About how much land do you use for farming?"))
                 await self.text("Maize and tomatoes")
@@ -226,6 +261,10 @@ class Env:
                 await self.text("5 acres")
             elif s == "location":
                 await self.location()
+            elif s == "id_type":
+                await self.button("idtype_OMANG", "Omang")
+            elif s in ("id_front", "selfie"):
+                await self.identity_image()
             elif s == "farm_photo":
                 await self.image()
             elif s == "crop_skip":

@@ -8,17 +8,16 @@ from app.config import Settings
 from app.enums import Stage
 from app.schemas.ai_response import CORRECTABLE_FIELDS, AIResponse
 from app.schemas.conversation import Draft
+from app.workflows import address_flow
 from app.workflows import validators as v
 from app.workflows.validators import ValidationFailure
 
-OPTIONAL_FIELDS = {"farm_name", "farm_address"}
+OPTIONAL_FIELDS = {"farm_name"}
 FIELD_LABELS = {
     "full_name": "name",
     "country": "country",
-    "village": "village or town",
-    "district": "district",
+    "full_address_text": "farm address",
     "farm_name": "farm name",
-    "farm_address": "farm address",
     "crops": "crops",
     "cultivation_area": "land size",
     "preferred_language": "language",
@@ -46,9 +45,10 @@ def _set(draft: Draft, name: str, value: Any, settings: Settings, extras: dict |
         draft.full_name = v.validate_name(value)
     elif name == "country":
         draft.country = v.validate_country(value)
-    elif name in ("village", "district"):
-        setattr(draft, name, v.validate_place(name, value))
-    elif name in ("farm_name", "farm_address"):
+    elif name == "full_address_text":  # a confirmed (corrected) address replaces the old one as given
+        draft.full_address_text = v.validate_address(value)
+        draft.address_missing, draft.address_followups = [], 0
+    elif name == "farm_name":
         setattr(draft, name, v.validate_optional_text(name, value, 500))
     elif name == "crops":
         draft.crops = v.validate_crops(value if isinstance(value, list) else [str(value)])
@@ -74,11 +74,17 @@ def apply_ai(draft: Draft, ai: AIResponse, stage: Stage, settings: Settings) -> 
         if name in corrections:
             continue
         already = has_value(draft, name)
-        if already and not at_review:
+        followup = name == "full_address_text" and bool(draft.address_missing)  # answer to a missing-part question
+        if already and not at_review and not followup:
             continue  # plain extraction never overwrites; only explicit corrections (or review edits) do
-        incoming[name] = (val, already)
+        incoming[name] = (val, already and not followup)
     for name, val in corrections.items():
         incoming[name] = (val, True)
+
+    # The farm address is one text with its own rules (completeness follow-ups, correction confirmation).
+    address = incoming.pop("full_address_text", None)
+    if address is not None:
+        _apply_address(draft, ai, address, stage, result)
 
     # Combine area fields into one validated unit of work.
     area_val = incoming.pop("cultivation_area", None)
@@ -120,6 +126,27 @@ def apply_ai(draft: Draft, ai: AIResponse, stage: Stage, settings: Settings) -> 
             if name not in OPTIONAL_FIELDS:
                 result.errors.append(e)
     return result
+
+
+def _apply_address(draft: Draft, ai: AIResponse, address: tuple[Any, bool], stage: Stage, result: ApplyResult) -> None:
+    raw, is_correction = address
+    followup = bool(draft.address_missing)
+    try:
+        if is_correction and draft.full_address_text and not followup:  # Claude rewrote the whole address: the farmer must confirm it before it replaces the old one
+            result.confirm = {"type": "confirm_field", "field": "full_address_text",
+                              "value": v.validate_address(address_flow.clean(raw))}
+            return
+        text = v.validate_address(address_flow.combine(draft.full_address_text if followup else None, str(raw)))
+    except ValidationFailure as e:
+        # an address mentioned in passing at another step is simply ignored; only the address question reports errors
+        if stage == Stage.COLLECT_FARM_DETAILS:
+            result.errors.append(e)
+        return
+    draft.full_address_text = text
+    address_flow.apply_followup_rule(
+        draft, address_flow.canonical_missing(ai.address_missing_parts, address_flow.format_for(draft.country))
+    )
+    result.changed.append("full_address_text")
 
 
 def apply_pending_confirmed(draft: Draft, pending: dict[str, Any], settings: Settings) -> list[str]:

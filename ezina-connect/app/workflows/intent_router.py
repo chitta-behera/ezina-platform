@@ -21,7 +21,9 @@ class Action(StrEnum):
     REGISTER_FIRST = "REGISTER_FIRST"  # unregistered farmer asking for farm/crop/harvest actions
     NOT_YET = "NOT_YET"  # registered farmer, feature not available yet
     GENERAL = "GENERAL"  # answer briefly (Claude, guarded) and re-ask the current question
+    DECLINE = "DECLINE"  # unregistered farmer says no / not now to registering
     GREET_REGISTERED = "GREET_REGISTERED"
+    START_IDENTITY = "START_IDENTITY"  # send / resume the ID document and selfie
 
 
 _LATER_FEATURES = {
@@ -43,6 +45,8 @@ def route(intent: Intent, *, registered: bool, in_registration: bool, has_data: 
         return Action.STATUS_REGISTRATION
     if intent == Intent.CHECK_VERIFICATION_STATUS:
         return Action.STATUS_VERIFICATION
+    if intent == Intent.SUBMIT_IDENTITY_DOCUMENTS:
+        return Action.START_IDENTITY
 
     if in_registration:
         if intent == Intent.CANCEL_REGISTRATION:
@@ -68,6 +72,8 @@ def route(intent: Intent, *, registered: bool, in_registration: bool, has_data: 
         return Action.GENERAL
 
     # not registered, no active flow
+    if intent == Intent.DENY:
+        return Action.DECLINE
     if intent in (Intent.REGISTER_FARMER, Intent.GREETING, Intent.CONFIRM, Intent.PROVIDE_INFORMATION):
         return Action.START_REGISTRATION
     if intent in _LATER_FEATURES:

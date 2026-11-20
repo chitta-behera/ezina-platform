@@ -1,0 +1,30 @@
+# Farm address guidance per country (ISO 3166-1 alpha-2), used by COLLECT_FARM_DETAILS.
+#   expected      parts a good address should contain. Claude checks the farmer's address against these and
+#                 reports anything clearly missing (address_missing_parts). Only these can trigger a follow-up.
+#   helpful       parts that make an address easier to find, never asked for.
+#   instruction   one short sentence shown under the question.
+#   example       shown to the farmer; also given to Claude.
+# A landmark ("near the school") is a valid address part: many farms have no street address.
+# The address is stored as ONE text value (farms.full_address_text); the parts are never stored.
+default:
+  expected: ["village/town", "district"]
+  helpful: ["landmark", "postal code"]
+  instruction: "Please include your village or town and your district. A nearby landmark and the postal code help too."
+  example: "Near the primary school, Greenfield village, Central district"
+
+countries:
+  IN:
+    expected: ["village/town", "district", "state", "PIN code"]
+    helpful: ["plot/survey number", "landmark"]
+    instruction: "Please include your village or town, district, state and PIN code. A plot or survey number and a nearby landmark help too."
+    example: "Survey No. 45, near Hanuman temple, Shirur village, Pune district, Maharashtra 412210"
+  BW:
+    expected: ["village/town", "district"]
+    helpful: ["plot number", "landmark", "ward"]
+    instruction: "Please include your village or town and your district. A plot number, a nearby landmark or your ward help too."
+    example: "Plot 1234, near Mogoditshane clinic, Mogoditshane, Kweneng District"
+  KE:
+    expected: ["sub-county", "county", "plot number or landmark"]
+    helpful: ["village", "ward"]
+    instruction: "Please include your sub-county, your county, and a plot number or a nearby landmark. Your village and ward help too."
+    example: "Plot No. Nyeri/Gikondi/1234, near Gikondi Primary School, Gikondi village, Mukurwe-ini sub-county, Nyeri County"

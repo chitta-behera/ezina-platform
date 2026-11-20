@@ -36,6 +36,7 @@ class ClaudeContext:
     preferred_language: str | None = None
     mode: str = "interpret"  # interpret | compose
     saved_summary: dict[str, Any] = field(default_factory=dict)  # compose mode: what was just saved
+    address: dict[str, Any] | None = None  # address step: the country's instruction, example, expected parts
 
 
 def load_system_prompt(settings: Settings) -> str:
@@ -57,6 +58,8 @@ def build_user_message(ctx: ClaudeContext) -> str:
         "already_collected": ctx.collected,
         "preferred_language": ctx.preferred_language,
     }
+    if ctx.address:
+        state["address_format"] = ctx.address
     if ctx.mode == "compose":
         target = (
             "COMPOSE ONLY. The program already handled the farmer's message and saved: "

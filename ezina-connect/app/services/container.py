@@ -6,10 +6,11 @@ from dataclasses import dataclass
 from app.config import Settings
 from app.database import Database
 from app.services.claude_service import ClaudeService
+from app.services.identity_service import IdentityService
 from app.services.media_service import MediaService
 from app.services.ops_notifier import OpsNotifier
 from app.services.rate_limiter import RateLimiter
-from app.services.storage_service import StorageBackend, get_storage
+from app.services.storage_service import StorageBackend, get_identity_storage, get_storage
 from app.services.whatsapp_service import WhatsAppService
 
 
@@ -23,6 +24,11 @@ class Container:
     storage: StorageBackend
     limiter: RateLimiter
     ops: OpsNotifier
+    identity: IdentityService | None = None  # built from settings when not supplied (private identity storage)
+
+    def __post_init__(self) -> None:
+        if self.identity is None:
+            self.identity = IdentityService(self.settings, self.whatsapp, get_identity_storage(self.settings))
 
     @classmethod
     def build(cls, settings: Settings) -> "Container":

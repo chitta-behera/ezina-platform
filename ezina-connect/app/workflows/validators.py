@@ -54,10 +54,14 @@ def country_name(code: str | None) -> str:
     return getattr(c, "common_name", None) or c.name if c else code
 
 
-def validate_place(field: str, value: str) -> str:
+ADDRESS_MIN_CHARS, ADDRESS_MAX_CHARS = 10, 500
+
+
+def validate_address(value: str) -> str:
+    """The farm address is one text: non-empty, at least 10 characters. A landmark is a valid address."""
     v = re.sub(r"\s+", " ", (value or "").strip())
-    if len(v) < 2 or len(v) > 150 or not re.search(r"[^\W\d_]", v):
-        raise ValidationFailure(field, f"invalid {field}", "Gaborone" if field != "district" else "South East")
+    if len(v) < ADDRESS_MIN_CHARS or len(v) > ADDRESS_MAX_CHARS or not re.search(r"[^\W\d_]", v):
+        raise ValidationFailure("full_address_text", "invalid address", "")
     return v
 
 

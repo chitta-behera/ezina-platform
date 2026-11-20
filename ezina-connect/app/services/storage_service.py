@@ -38,10 +38,11 @@ class LocalStorage:
 
 
 class S3Storage:
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, bucket: str | None = None, encrypt: bool = False):
         import boto3  # imported lazily so local development does not need S3 config
 
-        self.bucket = settings.s3_bucket
+        self.bucket = bucket or settings.s3_bucket
+        self.encrypt = encrypt  # server-side encryption (identity bucket)
         self.client = boto3.client(
             "s3",
             endpoint_url=settings.s3_endpoint_url or None,
@@ -50,8 +51,9 @@ class S3Storage:
         )
 
     async def put(self, key: str, data: bytes, content_type: str) -> str:
+        extra = {"ServerSideEncryption": "AES256"} if self.encrypt else {}
         await asyncio.to_thread(
-            self.client.put_object, Bucket=self.bucket, Key=key, Body=data, ContentType=content_type
+            self.client.put_object, Bucket=self.bucket, Key=key, Body=data, ContentType=content_type, **extra
         )
         return key
 
@@ -65,3 +67,13 @@ def get_storage(settings: Settings) -> StorageBackend:
             raise RuntimeError("S3_BUCKET must be set when MEDIA_STORAGE_BACKEND=s3")
         return S3Storage(settings)
     return LocalStorage(settings.media_local_dir)
+
+
+def get_identity_storage(settings: Settings) -> StorageBackend:
+    """Separate, private storage for ID photos and selfies (never the farm-photo bucket, never public URLs)."""
+    if settings.media_storage_backend.lower() == "s3":
+        if not settings.s3_identity_bucket:
+            raise RuntimeError("S3_IDENTITY_BUCKET must be set when MEDIA_STORAGE_BACKEND=s3")
+        return S3Storage(settings, bucket=settings.s3_identity_bucket, encrypt=True)
+    root = settings.identity_local_dir or (str(Path(settings.media_local_dir).resolve()) + "_identity")
+    return LocalStorage(root)

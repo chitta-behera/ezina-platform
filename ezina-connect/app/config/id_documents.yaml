@@ -1,0 +1,19 @@
+# Identity document types per country (ISO 3166-1 alpha-2).
+#   code   stored on identity_documents.id_document_type
+#   names  display name per language; "en" is the fallback
+#   back   kept for future use; Ezina currently asks for the FRONT only (all false)
+#   mask   show masking instructions (Aadhaar: cover the first 8 digits)
+# Ezina never asks for, stores or repeats an ID number.
+countries:
+  IN:
+    types:
+      - {code: AADHAAR_MASKED, names: {en: "Aadhaar (masked)"}, back: false, mask: true}
+      - {code: VOTER_ID, names: {en: "Voter ID / EPIC"}, back: false, mask: false}
+      - {code: PAN, names: {en: "PAN card"}, back: false, mask: false}
+      - {code: KCC, names: {en: "Kisan Credit Card"}, back: false, mask: false}
+      - {code: DRIVING_LICENCE, names: {en: "Driving licence"}, back: false, mask: false}
+  BW:
+    types:
+      - {code: OMANG, names: {en: "Omang"}, back: false, mask: false}
+      - {code: PASSPORT, names: {en: "Passport"}, back: false, mask: false}
+      - {code: DRIVING_LICENCE, names: {en: "Driving licence"}, back: false, mask: false}

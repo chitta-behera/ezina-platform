@@ -19,6 +19,14 @@ class Farmer(UUIDPk, TimestampMixin, Base):
             "verification_status IN ('NOT_SUBMITTED','PENDING','VERIFIED','REJECTED','NEEDS_MORE_INFO')",
             name="ck_farmers_verification_status",
         ),
+        CheckConstraint(
+            "id_document_status IN ('NOT_PROVIDED','RECEIVED','NEEDS_HELP','DEFERRED')",
+            name="ck_farmers_id_document_status",
+        ),
+        CheckConstraint(
+            "selfie_status IN ('NOT_PROVIDED','RECEIVED','NEEDS_HELP','DEFERRED')",
+            name="ck_farmers_selfie_status",
+        ),
     )
 
     wa_id: Mapped[str] = mapped_column(String(32), unique=True, index=True)  # E.164
@@ -30,6 +38,12 @@ class Farmer(UUIDPk, TimestampMixin, Base):
     consent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     registration_status: Mapped[str] = mapped_column(String(20), default="NOT_STARTED", index=True)
     verification_status: Mapped[str] = mapped_column(String(20), default="NOT_SUBMITTED", index=True)
+    id_document_status: Mapped[str] = mapped_column(
+        String(20), default="NOT_PROVIDED", server_default="NOT_PROVIDED", index=True
+    )
+    selfie_status: Mapped[str] = mapped_column(
+        String(20), default="NOT_PROVIDED", server_default="NOT_PROVIDED", index=True
+    )
     opted_out: Mapped[bool] = mapped_column(Boolean, default=False)
     opted_out_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # data-deletion support

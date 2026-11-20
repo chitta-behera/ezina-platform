@@ -4,6 +4,7 @@ from app.models.document import FarmDocument
 from app.models.farm import Farm
 from app.models.farmer import Farmer
 from app.models.harvest import Harvest
+from app.models.identity_document import IdentityDocument
 from app.models.message import Message
 from app.models.verification import Verification
 
@@ -14,6 +15,7 @@ __all__ = [
     "Farmer",
     "FarmerCrop",
     "Harvest",
+    "IdentityDocument",
     "Message",
     "Verification",
 ]

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import Float, ForeignKey, String, Uuid
+from sqlalchemy import Float, ForeignKey, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base, TimestampMixin, UUIDPk
@@ -15,9 +15,7 @@ class Farm(UUIDPk, TimestampMixin, Base):
         Uuid, ForeignKey("farmers.id", ondelete="CASCADE"), index=True
     )
     name: Mapped[str | None] = mapped_column(String(200))
-    village: Mapped[str | None] = mapped_column(String(200))
-    district: Mapped[str | None] = mapped_column(String(200))
-    address: Mapped[str | None] = mapped_column(String(500))
+    full_address_text: Mapped[str] = mapped_column(Text)  # the whole address as one text; parts are never stored
     latitude: Mapped[float | None] = mapped_column(Float)
     longitude: Mapped[float | None] = mapped_column(Float)
     location_name: Mapped[str | None] = mapped_column(String(300))
