@@ -126,7 +126,7 @@ async def test_low_resolution_rejected_with_one_tip_and_not_stored(env):
 async def test_wrong_mime_and_unreadable_files_rejected(env):
     await env.run_registration_until("id_type")
     await env.identity_image(mime="image/gif", data=b"GIF89a....")
-    assert "JPEG or PNG" in env.graph.texts()[-1]
+    assert env.graph.texts()[-1].startswith("Please send a photo of your ID: tap 📎 (Attach) → Camera or Gallery.")
     await env.identity_image(data=b"\xff\xd8\xff\xe0" + b"x" * 200)  # claims JPEG but cannot be opened
     assert "couldn't open" in env.graph.texts()[-1]
     assert await identity_rows(env) == []
@@ -150,13 +150,13 @@ async def test_i_dont_have_any_marks_needs_help(env):
 
 
 # ------------------------------------------------------------------ 23. documents
-async def test_id_sent_as_pdf_document_is_accepted(env):
+async def test_id_sent_as_pdf_document_is_refused_and_a_photo_is_asked_for(env):
+    """ezina_id_verify reads JPEG and PNG only: a PDF is not stored and the farmer is asked for a photo."""
     await env.run_registration_until("id_type")
     await env.document()  # PDF
-    (row,) = await identity_rows(env)
-    assert (row.kind, row.mime_type) == ("ID_FRONT", "application/pdf")
-    assert row.storage_key.endswith(".pdf") and row.quality_result["resolution_checked"] is False
-    assert await env.stage() == "COLLECT_SELFIE"
+    assert await identity_rows(env) == []
+    assert env.graph.texts()[-1].startswith("Please send a photo of your ID: tap 📎 (Attach) → Camera or Gallery.")
+    assert await env.stage() == "COLLECT_ID_DOCUMENT" and (await draft(env))["id_attempts"] == 1
 
 
 async def test_id_sent_as_image_document_is_accepted(env):
@@ -501,8 +501,7 @@ async def test_changing_country_discards_an_id_type_that_does_not_apply(env):
     await env.text("sorry, my farm is in Botswana")
     d = await draft(env)
     assert d["country"] == "BW" and d["id_type"] is None and d["id_front_doc"] is None
-    (row,) = await identity_rows(env)
-    assert row.status == "SUPERSEDED"
+    assert await identity_rows(env) == []  # the old ID's image and row are deleted, not kept
     assert env.graph.last_buttons()[0] == "idtype_OMANG"
 
 

@@ -91,6 +91,12 @@ class _Reader:
         for i, text in enumerate(self.latin):
             text = _LEADING_SEPARATORS.sub("", text)
             hit = _longest_match(text, labels)
+            if hit is None and "/" in text:
+                # a bilingual label whose first-script half was read as noise ("film - / Given Name(s)"): use the part after "/"
+                tail = _LEADING_SEPARATORS.sub("", text.split("/", 1)[1])
+                tail_hit = _longest_match(tail, labels)
+                if tail_hit is not None:
+                    text, hit = tail, tail_hit
             if hit is None:
                 continue
             skip = _longest_match(text, self.skips)
@@ -109,9 +115,13 @@ class _Reader:
                 below = _LEADING_SEPARATORS.sub("", self.latin[j])
                 if not below:
                     continue  # a line in another script (Hindi, Arabic, ...)
-                value = None if self._is_label_line(below) else self._value(below)
+                if self._is_label_line(below):
+                    break
+                value = self._value(below)
                 if value:
                     return value, min(self.lines[i].confidence, self.lines[j].confidence)
+                if any(ch.isdigit() for ch in below):
+                    continue  # a number from the next column (passport no., dates) read between the label and its value
                 break
         return None
 

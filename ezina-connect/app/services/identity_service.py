@@ -22,7 +22,7 @@ from app.database import utcnow
 from app.enums import FaceCheckStatus, IdentityDocStatus, IdentityKind, NameCheckStatus
 from app.models import IdentityDocument
 from app.services import name_match
-from app.services.doc_extract_service import DocExtractError, DocExtractService
+from app.services.doc_extract_service import DocExtractService
 from app.services.face_verify_service import (
     FaceResult,
     FaceVerifyError,
@@ -32,7 +32,7 @@ from app.services.face_verify_service import (
 )
 from app.services.storage_service import StorageBackend
 from app.services.whatsapp_service import WhatsAppError, WhatsAppService
-from app.workflows import identity_flow
+from app.workflows import messages as M
 
 log = logging.getLogger("ezina.identity")
 _EXT = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "application/pdf": "pdf"}
@@ -103,9 +103,10 @@ class IdentityService:
         try:
             meta = await self.wa.get_media_meta(media_id)
             mime = (meta.get("mime_type") or "").lower().split(";")[0].strip()
-            if mime not in allowed:
-                raise IdentityRejected("mime", "Sorry, I can only accept a JPEG or PNG photo" + (
-                    "" if kind == IdentityKind.SELFIE else " (or a PDF)") + ". Please send it again.")
+            if mime not in allowed:  # ezina_id_verify reads JPEG and PNG only: a PDF or any other file is not accepted
+                raise IdentityRejected("mime", (
+                    "Sorry, I can only accept a JPEG or PNG photo. Please send it again."
+                    if kind == IdentityKind.SELFIE else M.ID_SEND_PHOTO))
             if int(meta.get("file_size") or 0) > self.s.identity_max_bytes:
                 raise IdentityRejected("size", "That file is too large. Please send a smaller photo.")
             data = await self.wa.download_media(meta["url"])
@@ -117,8 +118,22 @@ class IdentityService:
 
         quality = inspect_image(data, mime, kind, self.s.identity_min_image_px)
         digest = hashlib.sha256(data).hexdigest()
-        if (await session.execute(select(IdentityDocument.id).where(IdentityDocument.sha256 == digest))).first():
-            raise IdentityRejected("duplicate", "That photo has already been used. Please take a new photo now.")
+        same = (await session.execute(select(IdentityDocument).where(IdentityDocument.sha256 == digest))).scalars().first()
+        if same is not None:
+            own = same.farmer_id == farmer_id and same.kind == kind.value
+            replaced = same.status in (IdentityDocStatus.REJECTED.value, IdentityDocStatus.SUPERSEDED.value)
+            if own and kind != IdentityKind.SELFIE and same.status == IdentityDocStatus.REJECTED.value:
+                # a leftover from before unreadable IDs were deleted: the farmer's own rejected upload of this photo
+                await self.discard(session, same)
+            elif own and replaced:
+                # the farmer's own earlier photo of this kind that was replaced or rejected (an ID after [Upload another
+                # ID], a selfie after a problem) may be sent again: the old row keeps its data but gives up the hash
+                await self.release_hash(session, same)
+            else:  # another farmer's photo, or the farmer's current accepted one
+                log.warning("identity image refused: photo already used", extra={
+                    "kind": kind.value, "same_farmer": same.farmer_id == farmer_id, "earlier_kind": same.kind,
+                    "earlier_status": same.status})
+                raise IdentityRejected("duplicate", "That photo has already been used. Please take a new photo now.")
 
         key = f"identity/{farmer_id}/{kind.value.lower()}/{uuid.uuid4()}.{_EXT[mime]}"
         await self.storage.put(key, data, mime)
@@ -132,42 +147,68 @@ class IdentityService:
             async with session.begin_nested():
                 await self.supersede(session, farmer_id, kind)
                 session.add(doc)
-        except IntegrityError:  # another upload of the same image won the race on the unique hash
+        except IntegrityError as e:
             await self.storage.delete(key)
-            raise IdentityRejected("duplicate", "That photo has already been used. Please take a new photo now.")
+            clash = (await session.execute(select(IdentityDocument.id).where(IdentityDocument.sha256 == digest))).first()
+            log.error("identity image not saved: integrity error", extra={
+                "kind": kind.value, "hash_clash": clash is not None, "error": str(getattr(e, "orig", e))[:200]})
+            if clash is not None:  # another upload of the same image won the race on the unique hash
+                raise IdentityRejected("duplicate", "That photo has already been used. Please take a new photo now.")
+            raise IdentityRejected("save_failed", "Sorry, I couldn't save that photo. Please send it again.") from e
         await session.flush()
         log.info("identity image accepted", extra={"kind": kind.value, "bytes": len(data), "attempt": attempt})
         return doc
 
+    async def release_hash(self, session: AsyncSession, doc: IdentityDocument) -> None:
+        """A replaced or rejected image gives up its unique hash so the farmer can send the same photo again; the row
+        (status, results, attempt counts) stays for the review."""
+        doc.sha256 = f"replaced:{uuid.uuid4().hex}"
+        await session.flush()
+
+    async def discard(self, session: AsyncSession, doc: IdentityDocument) -> None:
+        """Remove an unusable upload (e.g. no name could be read): the stored image and the row, so the farmer can
+        send a new photo (even the same one) and no unusable personal data is kept."""
+        try:
+            await self.storage.delete(doc.storage_key)
+        except Exception as e:  # the row still goes: a leftover file is reported, never blocks the farmer
+            log.warning("discarded identity image not deleted", extra={"error": type(e).__name__})
+        await session.delete(doc)
+        await session.flush()
+
     # ------------------------------------------------------------------ name check (advisory, ID_FRONT only)
     async def extract_name(self, doc: IdentityDocument, extract: DocExtractService) -> NameCheckStatus:
-        """Send the stored ID image to the extraction API and keep only the name on the row.
+        """Read the name on the stored ID image (ezina_id_verify) and keep only the name on the row.
 
-        SKIPPED when the check is off or this ID type has no configuration (no API call); ERROR when the API could
-        not be used (the farmer is not blocked, operations review it); NOT_FOUND when the response had no name;
-        otherwise PENDING, with `extracted_name` set, waiting for compare_name().
+        SKIPPED when the check is off, this ID type has no verify_doc_type (e.g. KCC) or the package does not know it
+        (extract_name is not called for a type without one); ERROR when the check could not run (the farmer is not
+        blocked, operations review it); NOT_FOUND when no name was read, or the image was not a usable JPEG/PNG
+        (`doc.name_check_reason` = "unsupported_file", so the farmer is asked for a clear photo); otherwise PENDING,
+        with `extracted_name` set, waiting for compare_name().
         """
-        spec = identity_flow.extraction_for(doc.id_document_type)
         doc.name_check_status, doc.extracted_name, doc.name_match_score = NameCheckStatus.PENDING.value, None, None
-        if not extract.available or spec is None:
+        doc.name_extract_method = doc.name_extract_confidence = None
+        doc.name_check_reason = None  # not a column: read once by the conversation in this same turn
+        if not extract.available or extract.verify_doc_type(doc.id_document_type) is None:
             doc.name_check_status = NameCheckStatus.SKIPPED.value
             return NameCheckStatus.SKIPPED
         try:
             data = await self.storage.get(doc.storage_key)
-            name = await extract.extract_name(
-                doc_type=spec.doc_type, name_fields=list(spec.name_fields), data=data, mime=doc.mime_type
-            )
-        except Exception as e:  # DocExtractError, or the stored image could not be read: never block the farmer
-            reason = e.reason if isinstance(e, DocExtractError) else type(e).__name__
+        except Exception as e:  # the stored image could not be read: never block the farmer
             doc.name_check_status, doc.name_checked_at = NameCheckStatus.ERROR.value, utcnow()
-            log.warning("name check error: flagged for operations review", extra={"reason": reason, "doc": str(doc.id)})
+            log.warning("name check error: flagged for operations review", extra={"reason": type(e).__name__, "doc": str(doc.id)})
             return NameCheckStatus.ERROR
+        out = await extract.extract_name(id_document_type=doc.id_document_type, data=data)
+        doc.name_check_status, doc.name_check_reason = out.status.value, out.reason
+        if out.status == NameCheckStatus.SKIPPED:  # the package does not know this doc_type: nothing was checked
+            return NameCheckStatus.SKIPPED
         doc.name_checked_at = utcnow()
-        if not name:
-            doc.name_check_status = NameCheckStatus.NOT_FOUND.value
-            return NameCheckStatus.NOT_FOUND
-        doc.extracted_name = name
-        return NameCheckStatus.PENDING
+        doc.name_extract_method, doc.name_extract_confidence = out.method, out.confidence
+        if out.status == NameCheckStatus.ERROR:
+            log.warning("name check error: flagged for operations review", extra={"reason": out.reason, "doc": str(doc.id)})
+            return NameCheckStatus.ERROR
+        if out.status == NameCheckStatus.PENDING:
+            doc.extracted_name = out.name
+        return out.status
 
     def compare_name(self, doc: IdentityDocument, given_name: str | None) -> NameCheckStatus:
         """Compare the farmer's name with the stored extracted name (no API call). Advisory: never verifies anyone."""
@@ -196,10 +237,11 @@ class IdentityService:
         """Record the outcome on the selfie row. Only the listed fields are kept; the raw response never is."""
         r = result or FaceResult()
         selfie.face_check_status = status.value
-        selfie.face_verified, selfie.face_distance, selfie.face_threshold = r.verified, r.distance, r.threshold
+        selfie.face_verified, selfie.face_similarity, selfie.face_threshold = r.verified, r.similarity, r.threshold
         selfie.face_confidence_band, selfie.face_liveness_passed = r.confidence_band, r.liveness_passed
         selfie.face_found_id, selfie.face_found_selfie = r.face_found_id, r.face_found_selfie
-        selfie.face_model, selfie.face_detector, selfie.face_processing_ms = r.model, r.detector, r.processing_ms
+        selfie.face_selfie_quality_ok = r.selfie_quality_ok
+        selfie.face_model, selfie.face_processing_ms = r.model, r.processing_ms  # face_distance/face_detector: legacy, not written
         selfie.face_warnings = r.warnings or None
         selfie.face_error_message = error or r.error
         selfie.face_checked_at = utcnow()
@@ -246,19 +288,28 @@ class IdentityService:
         return self._set_face(selfie, status, result)
 
     async def supersede(self, session: AsyncSession, farmer_id: uuid.UUID, kind: IdentityKind) -> None:
-        """Mark earlier ACCEPTED images replaced (ID_FRONT replaces the whole ID: front and back)."""
-        kinds = [IdentityKind.ID_FRONT, IdentityKind.ID_BACK] if kind == IdentityKind.ID_FRONT else [kind]
+        """Replace earlier images. A new ID (front or back) deletes the farmer's old ID images and rows (the stored
+        file included, so no outdated personal data is kept); a new selfie marks the earlier ACCEPTED selfie SUPERSEDED."""
+        if kind in (IdentityKind.ID_FRONT, IdentityKind.ID_BACK):
+            old = (await session.execute(select(IdentityDocument).where(
+                IdentityDocument.farmer_id == farmer_id,
+                IdentityDocument.kind.in_([IdentityKind.ID_FRONT.value, IdentityKind.ID_BACK.value]),
+            ))).scalars().all()
+            for r in old:
+                await self.discard(session, r)
+            return
         rows = (
             await session.execute(
                 select(IdentityDocument).where(
                     IdentityDocument.farmer_id == farmer_id,
-                    IdentityDocument.kind.in_([k.value for k in kinds]),
+                    IdentityDocument.kind == kind.value,
                     IdentityDocument.status == IdentityDocStatus.ACCEPTED.value,
                 )
             )
         ).scalars().all()
         for r in rows:
             r.status = IdentityDocStatus.SUPERSEDED.value
+            r.sha256 = f"replaced:{uuid.uuid4().hex}"  # the same selfie may be sent again (it gets the same result)
 
     async def accepted(self, session: AsyncSession, farmer_id: uuid.UUID) -> dict[str, IdentityDocument]:
         """Latest ACCEPTED document per kind."""

@@ -5,26 +5,25 @@
 #   mask   show masking instructions (Aadhaar: cover the first 8 digits)
 # Ezina never asks for, stores or repeats an ID number.
 #
-# extraction: the ID name check (external document-extraction API), keyed by ID type code.
-#   doc_type     value sent to the API as the `doc_type` form field
-#   name_fields  response fields holding the name; dot paths allowed ("fields.name.value" for a response shaped
-#                {"fields": {"name": {"value": "..."}}}); the values are joined with a space, in order, and
-#                missing or empty ones are skipped
-# An ID type with no entry here is not sent to the API (name check SKIPPED). To add one, add an entry: no code change.
+# extraction: the ID name check (ezina_id_verify, AWS Rekognition), keyed by ID type code.
+#   verify_doc_type  the doc_type passed to ezina_id_verify.extract_name(): one of the types in that package's
+#                    documents.yaml (passport, aadhaar, pan, voter_id, driving_licence, botswana_omang, kenya_id, ...)
+# An ID type with no entry here is not checked (name check SKIPPED, extract_name is not called), e.g. KCC. To add one,
+# add an entry: no code change. A verify_doc_type the package does not know is also SKIPPED at run time.
 # The file is validated at startup; a malformed file stops the app with a clear message.
 extraction:
   PASSPORT:
-    doc_type: "passport"
-    name_fields: ["fields.given_names.value", "fields.surname.value"]
-  PAN:
-    doc_type: "pan"
-    name_fields: ["fields.name.value"]
-  VOTER_ID:
-    doc_type: "voter_id"
-    name_fields: ["fields.name.value"]
+    verify_doc_type: "passport"
   AADHAAR_MASKED:
-    doc_type: "aadhaar"
-    name_fields: ["fields.name.value"]
+    verify_doc_type: "aadhaar"
+  PAN:
+    verify_doc_type: "pan"
+  VOTER_ID:
+    verify_doc_type: "voter_id"
+  DRIVING_LICENCE:
+    verify_doc_type: "driving_licence"
+  OMANG:
+    verify_doc_type: "botswana_omang"
 
 countries:
   IN:

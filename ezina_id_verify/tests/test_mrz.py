@@ -101,7 +101,8 @@ def test_a_single_mrz_line_is_used_only_when_the_name_is_complete_and_is_flagged
 
 
 def test_a_single_line_with_a_cut_off_name_is_not_used():
-    assert extract_mrz_name(lines("P<INDBEHERA<<CHITTA<RANJ")) is None  # no closing "<<": the name may be cut
+    c = extract_mrz_name(lines("P<INDBEHERA<<CHITTA<RANJ"))  # no closing "<<": the name may be cut, flagged for the caller
+    assert c is not None and c.warnings == ("mrz_incomplete", "mrz_name_unclosed")
     assert extract_mrz_name(lines("IND<<SOMETHING<<LONGENOUGH<<")) is None  # not a passport line
     assert extract_mrz_name(lines("P<INDBEHERA")) is None
 

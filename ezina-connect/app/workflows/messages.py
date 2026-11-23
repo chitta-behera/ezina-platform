@@ -139,11 +139,12 @@ def address_prompt(draft: Draft) -> Reply:
 
 
 ID_RECEIVED = "Thank you, your ID has been received ✅."
-NAME_CHECK_HOLD = "Checking your ID, please wait a moment…"
+NAME_CHECK_HOLD = "Thank you! Checking your ID, this takes a few seconds…"
 NAME_NOT_FOUND = (
     "I couldn't read the name on that photo. Please take a clearer photo of the ID: lay it flat in good light "
     "with all 4 corners showing."
 )
+ID_SEND_PHOTO = "Please send a photo of your ID: tap 📎 (Attach) → Camera or Gallery."
 NAME_CHECK_GIVE_UP = "Thank you. The Ezina team will review your ID and contact you if anything more is needed."
 NAME_ASK = "Please type your full name exactly as it is written on your ID."
 NAME_INVALID = "Sorry, that doesn't look like a name. Please type your full name exactly as it is written on your ID."
@@ -210,10 +211,28 @@ FACE_ID_UNCLEAR = (
 FACE_CHECK_GIVE_UP = "Thank you. The Ezina team will review your photos and contact you if anything more is needed."
 
 
-def face_mismatch_reply() -> Reply:
+# One specific tip for the retry message, chosen from the selfie quality warnings (first match in this order wins).
+# The farmer is never told a score or a threshold.
+_FACE_TIPS = (
+    ("eyes_closed", "Keep your eyes open and look at the camera."),
+    ("sunglasses", "Please take off your sunglasses."),
+    ("selfie_dark", "Face the light so your face is not in the shadow."),
+    ("selfie_blurry", "Hold the phone steady so the photo is sharp."),
+    ("multiple_faces_selfie", "Make sure only your face is in the photo."),
+)
+
+
+def face_tip(warnings: list[str] | None) -> str | None:
+    """The one retry tip for these selfie quality warnings, or None."""
+    have = set(warnings or [])
+    return next((tip for code, tip in _FACE_TIPS if code in have), None)
+
+
+def face_mismatch_reply(tip: str | None = None) -> Reply:
     """The selfie does not seem to match the photo on the ID. No score, no accusation; two buttons."""
+    extra = f"\n\n{tip}" if tip else ""
     return Reply(
-        body=f"Your selfie doesn't seem to match the photo on your ID. Please choose an option:\n\n{SELFIE_TIPS}",
+        body=f"Your selfie doesn't seem to match the photo on your ID. Please choose an option:\n\n{SELFIE_TIPS}{extra}",
         buttons=[Button(BTN_SELFIE_NEW, "Take a new selfie"), Button(BTN_ID_REUPLOAD, "Upload another ID")],
     )
 

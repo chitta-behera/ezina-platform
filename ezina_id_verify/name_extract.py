@@ -38,6 +38,24 @@ def score(method: str, ocr_confidence: float | None, warnings: list[str]) -> flo
     return round(max(0.0, min(1.0, value)), 2)
 
 
+def _tokens(value: str | None) -> list[str]:
+    return (value or "").upper().split()
+
+
+def _confirm_with_labels(mrz: Candidate, printed: Candidate | None) -> Candidate | None:
+    """An unclosed lone MRZ name is kept only when the printed name starts the same way (each MRZ word is the start of
+    the printed word at that position, surname equal). The complete printed spelling is returned, flagged."""
+    if printed is None or not printed.given_names or not printed.surname:
+        return None
+    m_given, p_given = _tokens(mrz.given_names), _tokens(printed.given_names)
+    if _tokens(mrz.surname) != _tokens(printed.surname) or len(p_given) < len(m_given):
+        return None
+    if not all(p.startswith(m) for m, p in zip(m_given, p_given)):
+        return None
+    return Candidate("mrz", printed.full_name, printed.given_names, printed.surname,
+                     warnings=("mrz_incomplete", "mrz_confirmed_by_label"), ocr_confidence=printed.ocr_confidence)
+
+
 def _result(doc_type: str, candidate: Candidate, warnings: list[str], case: str) -> NameResult:
     given = apply_case(candidate.given_names, case)
     surname = apply_case(candidate.surname, case)
@@ -71,6 +89,9 @@ async def extract_name(doc_type: str, id_image: bytes, *, ocr: OcrProvider | Non
     for strategy in spec.strategies:
         if strategy == "mrz":
             candidate = extract_mrz_name(lines)
+            if candidate is not None and "mrz_name_unclosed" in candidate.warnings:
+                # only the first MRZ line, its name field not closed: it may be cut short, so the printed name must agree
+                candidate = _confirm_with_labels(candidate, extract_label_name(lines, spec, docs.defaults, stop))
         elif strategy == "label":
             candidate = extract_label_name(lines, spec, docs.defaults, stop)
         elif strategy == "layout" and spec.layout:

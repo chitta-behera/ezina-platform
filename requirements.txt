@@ -14,6 +14,8 @@ pyyaml>=6
 Pillow>=10.3
 rapidfuzz>=3.6
 pypdfium2>=4.30
+# the ID verification package in ezina_id_verify/ (AWS Rekognition), installed from the root pyproject.toml
+-e .
 # dev / test
 aiosqlite>=0.20
 pytest>=8

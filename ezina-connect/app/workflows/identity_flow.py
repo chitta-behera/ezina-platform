@@ -39,8 +39,7 @@ class ConfigError(ValueError):
 
 @dataclass(frozen=True)
 class ExtractSpec:
-    doc_type: str  # sent to the document-extraction API
-    name_fields: tuple[str, ...]  # response fields (dot paths) joined with a space to form the full name
+    verify_doc_type: str  # the doc_type ezina_id_verify.extract_name() expects for this ID type
 
 
 def _bad(msg: str) -> ConfigError:
@@ -68,17 +67,14 @@ def _parse(raw: object) -> tuple[dict[str, list[IdType]], dict[str, ExtractSpec]
     extraction: dict[str, ExtractSpec] = {}
     block = raw.get("extraction") or {}
     if not isinstance(block, dict):
-        raise _bad("'extraction' must be a mapping of ID type code -> {doc_type, name_fields}")
+        raise _bad("'extraction' must be a mapping of ID type code -> {verify_doc_type}")
     for code, spec in block.items():
         if code not in known:
             raise _bad(f"extraction: '{code}' is not an ID type listed under countries")
-        doc_type = spec.get("doc_type") if isinstance(spec, dict) else None
-        fields = spec.get("name_fields") if isinstance(spec, dict) else None
-        if not isinstance(doc_type, str) or not doc_type.strip():
-            raise _bad(f"extraction.{code}: 'doc_type' must be a non-empty string")
-        if not isinstance(fields, list) or not fields or not all(isinstance(f, str) and f.strip() for f in fields):
-            raise _bad(f"extraction.{code}: 'name_fields' must be a non-empty list of field names")
-        extraction[code] = ExtractSpec(doc_type.strip(), tuple(f.strip() for f in fields))
+        verify = spec.get("verify_doc_type") if isinstance(spec, dict) else None
+        if not isinstance(verify, str) or not verify.strip():
+            raise _bad(f"extraction.{code}: 'verify_doc_type' must be a non-empty string")
+        extraction[code] = ExtractSpec(verify.strip())
     return types, extraction
 
 

@@ -1,7 +1,7 @@
-"""Selfie face check: the face-verification API client, how Python reads its result, and the farmer-facing flow.
+"""Selfie face check: the ezina_id_verify integration, how Python reads its result, and the farmer-facing flow.
 
-The API is mocked with httpx.MockTransport. The scores are for the operations team only: these tests also prove they
-never reach a farmer message, a log line or a Claude prompt, and that the check never verifies a farmer.
+ezina_id_verify.match_face is mocked (AWS is never called). The scores are for the operations team only: these tests
+also prove they never reach a farmer message, a log line or a Claude prompt, and that the check never verifies a farmer.
 """
 from __future__ import annotations
 
@@ -10,52 +10,46 @@ import io
 import logging
 import os
 
-import httpx
 import pytest
+from ezina_id_verify import FaceMatchResult, RekognitionServiceError, UnsupportedFile
 from PIL import Image
 
 from app.config import Settings
 from app.enums import FaceCheckStatus, Intent
 from app.models import Conversation, IdentityDocument
+from app.schemas.conversation import Draft
+from app.services import doc_extract_service, face_verify_service
 from app.services.claude_service import build_user_message
 from app.services.doc_extract_service import DocExtractService
-from app.services.face_verify_service import (
-    FaceResult,
-    FaceVerifyError,
-    FaceVerifyService,
-    classify,
-    parse_result,
-)
-from app.schemas.conversation import Draft
+from app.services.face_verify_service import FaceResult, FaceVerifyError, FaceVerifyService, classify
+from app.workflows import messages as M
 from app.workflows import reply_guard
-from tests.conftest import ADMIN_KEY, make_ai
+from tests.conftest import ADMIN_KEY, make_ai, make_image
 
-API_URL = "https://face.test/verify"
-SCORE = "0.9673"  # the distance in the sample response: must never reach the farmer
-
-
-def result(**over) -> dict:
-    base = {
-        "verified": False, "distance": 0.9673, "threshold": 0.68, "confidence_band": "no_match",
-        "liveness_passed": True, "face_found_id": True, "face_found_selfie": True, "model": "ArcFace",
-        "detector": "retinaface", "processing_ms": 13800.2, "error": None, "warnings": [],
-    }
-    return {**base, **over}
+SCORE = "41.3"  # the similarity in the default (mismatch) result: must never reach the farmer
 
 
-def reply(**over) -> httpx.Response:
-    return httpx.Response(200, json=result(**over))
+def result(**over) -> FaceMatchResult:
+    """A FaceMatchResult as ezina_id_verify returns it: a mismatch by default."""
+    base = dict(
+        verified=False, similarity=41.3, threshold=90.0, confidence_band="no_match", face_found_id=True,
+        face_found_selfie=True, liveness_passed=None, selfie_quality_ok=True, model="aws-rekognition-compare-faces",
+        processing_ms=5200.5, error=None, warnings=[],
+    )
+    return FaceMatchResult(**{**base, **over})
 
 
 class FaceMock:
+    """Stands in for ezina_id_verify.match_face: records the calls, answers from a script, never touches AWS."""
+
     def __init__(self):
-        self.requests: list[httpx.Request] = []
-        self.script: list = []  # httpx.Response | Exception, popped first
-        self.default = reply()
+        self.requests: list[tuple[bytes, bytes]] = []  # (id_image, selfie_image) per call
+        self.script: list = []  # FaceMatchResult | Exception, popped first
+        self.default = result()
         self.delay = 0.0
 
-    async def handler(self, request: httpx.Request) -> httpx.Response:
-        self.requests.append(request)
+    async def __call__(self, id_image: bytes, selfie_image: bytes) -> FaceMatchResult:
+        self.requests.append((id_image, selfie_image))
         if self.delay:
             await asyncio.sleep(self.delay)
         item = self.script.pop(0) if self.script else self.default
@@ -64,15 +58,17 @@ class FaceMock:
         return item
 
     def verdict(self, **over) -> None:
-        self.default = reply(**over)
+        self.default = result(**over)
 
 
-def make_service(**overrides) -> tuple[FaceVerifyService, FaceMock]:
-    mock = FaceMock()
-    base = dict(_env_file=None, face_verify_enabled=True, face_verify_api_url=API_URL, face_verify_retry_base_delay=0,
-                face_verify_max_retries=2)
-    settings = Settings(**{**base, **overrides})
-    return FaceVerifyService(settings, client=httpx.AsyncClient(transport=httpx.MockTransport(mock.handler))), mock
+@pytest.fixture
+def make_service(monkeypatch):
+    def factory(**overrides) -> tuple[FaceVerifyService, FaceMock]:
+        mock = FaceMock()
+        monkeypatch.setattr(face_verify_service, "match_face", mock)
+        return FaceVerifyService(Settings(**{"_env_file": None, "face_verify_enabled": True, **overrides})), mock
+
+    return factory
 
 
 async def call(svc: FaceVerifyService, **kw) -> FaceResult:
@@ -81,12 +77,13 @@ async def call(svc: FaceVerifyService, **kw) -> FaceResult:
 
 
 @pytest.fixture
-def face(env):
-    """The running app with the face check switched on and the API mocked (a mismatch by default)."""
+def face(env, monkeypatch):
+    """The running app with the face check switched on and match_face mocked (a mismatch by default)."""
     mock = FaceMock()
+    monkeypatch.setattr(face_verify_service, "match_face", mock)
     s = env.c.settings
-    s.face_verify_enabled, s.face_verify_api_url, s.face_verify_retry_base_delay = True, API_URL, 0
-    env.c.face_verify = FaceVerifyService(s, client=httpx.AsyncClient(transport=httpx.MockTransport(mock.handler)))
+    s.face_verify_enabled = True
+    env.c.face_verify = FaceVerifyService(s)
     return mock
 
 
@@ -125,230 +122,116 @@ def real_pdf() -> bytes:
     return buf.getvalue()
 
 
-# ------------------------------------------------------------------ 1. the client
-async def test_request_is_multipart_with_both_images_content_types_and_bearer_key():
-    svc, mock = make_service(face_verify_api_key="sekret-key")
-    r = await call(svc)
-    assert r.verified is False
-    (req,) = mock.requests
-    assert req.method == "POST" and str(req.url) == API_URL
-    assert req.headers["content-type"].startswith("multipart/form-data")
-    body = req.content
-    assert b'name="id_image"; filename="id.png"' in body and b"IDBYTES" in body
-    assert b'name="selfie_image"; filename="selfie.jpg"' in body and b"SELFIEBYTES" in body
-    assert b"Content-Type: image/png" in body and b"Content-Type: image/jpeg" in body
-    assert req.headers["authorization"] == "Bearer sekret-key"
-
-
-async def test_custom_key_header_gets_the_bare_key_and_no_key_sends_no_header():
-    svc, mock = make_service(face_verify_api_key="k1", face_verify_api_key_header="X-Api-Key")
+# ------------------------------------------------------------------ 1. the service calls ezina_id_verify
+async def test_match_face_gets_the_id_image_then_the_selfie_as_raw_bytes_and_nothing_else(make_service):
+    svc, mock = make_service()
     await call(svc)
-    assert mock.requests[0].headers["x-api-key"] == "k1" and "authorization" not in mock.requests[0].headers
-    svc2, mock2 = make_service()
-    await call(svc2)
-    assert "authorization" not in mock2.requests[0].headers
+    assert mock.requests == [(b"IDBYTES", b"SELFIEBYTES")]  # no content types: the package detects JPEG/PNG itself
 
 
-async def test_the_sample_response_is_parsed_field_by_field():
-    svc, _ = make_service()
+async def test_the_sample_result_is_kept_field_by_field(make_service):
+    svc, mock = make_service()
+    mock.default = result(verified=True, similarity=97.25, confidence_band="match", warnings=["eyes_closed"], processing_ms=7300.0)
     r = await call(svc)
-    assert (r.verified, r.distance, r.threshold, r.confidence_band) == (False, 0.9673, 0.68, "no_match")
-    assert (r.liveness_passed, r.face_found_id, r.face_found_selfie) == (True, True, True)
-    assert (r.model, r.detector, r.processing_ms, r.error, r.warnings) == ("ArcFace", "retinaface", 13800.2, None, [])
-
-
-def test_extra_unknown_fields_and_missing_optional_fields_still_parse():
-    r = parse_result({"verified": True, "brand_new_field": {"x": 1}, "another": [1, 2]})
-    assert r.verified is True and r.distance is None and r.warnings == [] and r.face_found_id is None
+    assert (r.verified, r.similarity, r.threshold, r.confidence_band) == (True, 97.25, 90.0, "match")
+    assert (r.liveness_passed, r.face_found_id, r.face_found_selfie, r.selfie_quality_ok) == (None, True, True, True)
+    assert (r.model, r.processing_ms, r.error, r.warnings) == ("aws-rekognition-compare-faces", 7300.0, None, ["eyes_closed"])
+    assert (r.distance, r.detector) == (None, None)  # the old API's fields are never set
     assert classify(r) == FaceCheckStatus.MATCHED
-    r2 = parse_result({"verified": False, "warnings": ["blurry", 3], "distance": "not a number", "error": ""})
-    assert r2.warnings == ["blurry", "3"] and r2.distance is None and r2.error is None
-    with pytest.raises(FaceVerifyError):
-        parse_result(["not", "an", "object"])
 
 
-# ------------------------------------------------------------------ 2. how Python reads the result
-@pytest.mark.parametrize("over,expected", [
-    ({"verified": True}, FaceCheckStatus.MATCHED),
-    ({"verified": False}, FaceCheckStatus.MISMATCH),
-    ({"face_found_id": False}, FaceCheckStatus.NO_FACE_ID),
-    ({"face_found_selfie": False}, FaceCheckStatus.NO_FACE_SELFIE),
-    ({"liveness_passed": False}, FaceCheckStatus.LIVENESS_FAILED),
-    ({"error": "no face detected"}, FaceCheckStatus.ERROR),
-    # the order: error, no face in the ID, no face in the selfie, liveness, then verified / not verified
-    ({"error": "x", "verified": True}, FaceCheckStatus.ERROR),
-    ({"error": "x", "liveness_passed": False}, FaceCheckStatus.ERROR),
-    # this API explains "no face found" in `error`: an explicit no-face flag is a definite result, not an API failure
-    ({"error": "no face found in ID photo", "face_found_id": False, "face_found_selfie": False}, FaceCheckStatus.NO_FACE_ID),
-    ({"error": "no face found in selfie", "face_found_selfie": False}, FaceCheckStatus.NO_FACE_SELFIE),
-    ({"face_found_id": False, "face_found_selfie": False, "liveness_passed": False}, FaceCheckStatus.NO_FACE_ID),
-    ({"face_found_selfie": False, "liveness_passed": False, "verified": True}, FaceCheckStatus.NO_FACE_SELFIE),
-    ({"liveness_passed": False, "verified": True}, FaceCheckStatus.LIVENESS_FAILED),
+@pytest.mark.parametrize("failure,reason", [
+    (RekognitionServiceError("AWS failed", "ThrottlingException"), "ThrottlingException"),
+    (UnsupportedFile("not a JPEG/PNG"), "UnsupportedFile"),
+    (RuntimeError("anything else"), "RuntimeError"),
 ])
-def test_classify_follows_the_documented_order(over, expected):
-    assert classify(parse_result(result(**over))) == expected
-
-
-def test_a_response_with_no_verdict_is_an_error():
-    assert classify(parse_result({"model": "ArcFace"})) == FaceCheckStatus.ERROR
-    assert classify(parse_result({"verified": "yes"})) == FaceCheckStatus.ERROR  # not a boolean
-
-
-# ------------------------------------------------------------------ 3. retries
-async def test_5xx_is_retried_then_succeeds():
+async def test_package_exceptions_become_one_service_error_without_a_retry(make_service, failure, reason):
     svc, mock = make_service()
-    mock.script = [httpx.Response(503), httpx.Response(502), reply(verified=True)]
-    assert (await call(svc)).verified is True and len(mock.requests) == 3
-
-
-async def test_timeouts_and_connection_errors_are_retried_then_raise():
-    svc, mock = make_service()
-    mock.script = [httpx.ReadTimeout("slow"), httpx.ConnectError("down"), httpx.ConnectTimeout("slow")]
-    with pytest.raises(FaceVerifyError):
+    mock.script = [failure, failure, failure]
+    with pytest.raises(FaceVerifyError) as e:
         await call(svc)
-    assert len(mock.requests) == 3  # 1 try + FACE_VERIFY_MAX_RETRIES
+    assert e.value.reason == reason
+    assert len(mock.requests) == 1  # ezina_id_verify already retries AWS errors: nothing is retried here
 
 
-@pytest.mark.parametrize("response", [httpx.Response(400), httpx.Response(401), httpx.Response(422),
-                                      httpx.Response(200, content=b"<html>not json</html>"),
-                                      httpx.Response(200, json=["not", "an", "object"])])
-async def test_4xx_and_unparseable_bodies_are_not_retried(response):
+async def test_the_service_logs_timing_but_never_scores_images_or_warnings_text(make_service, caplog):
     svc, mock = make_service()
-    mock.script = [response]
-    with pytest.raises(FaceVerifyError):
-        await call(svc)
-    assert len(mock.requests) == 1
-
-
-async def test_client_logs_status_and_timing_but_never_scores_or_images(caplog):
-    svc, _ = make_service()
+    mock.default = result(warnings=["eyes_closed"])
     with caplog.at_level(logging.DEBUG, logger="ezina"):
         await call(svc)
     assert "face verify call" in caplog.text
     text = app_log_text(caplog)
-    for secret in (SCORE, "IDBYTES", "SELFIEBYTES"):
+    for secret in (SCORE, "IDBYTES", "SELFIEBYTES", "eyes_closed", "no_match"):
         assert secret not in text
 
 
-async def test_a_4xx_with_a_result_body_is_a_result_not_a_failure():
-    """The real API answers "no face found" with HTTP 422 and the normal result body."""
+def test_availability_follows_the_switch_only(make_service):
+    svc, _ = make_service()
+    assert svc.available
+    assert not FaceVerifyService(Settings(_env_file=None, face_verify_enabled=False)).available
+
+
+def test_no_http_integration_remains():
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parent.parent / "app"
+    for path in (root / "services" / "face_verify_service.py", root / "services" / "doc_extract_service.py", root / "config.py"):
+        text = path.read_text(encoding="utf-8")
+        for gone in ("httpx", "FACE_VERIFY_API_URL", "face_verify_api_url", "DOC_EXTRACT_API_URL", "doc_extract_api_url",
+                     "face_verify_api_key", "doc_extract_api_key", "face_verify_max_retries", "doc_extract_max_retries"):
+            assert gone not in text, (path.name, gone)
+    for name in ("face_verify_api_url", "doc_extract_api_url", "face_verify_timeout_seconds", "doc_extract_timeout_seconds"):
+        assert name not in Settings.model_fields
+
+
+# ------------------------------------------------------------------ 2. how Python reads the result
+@pytest.mark.parametrize("over,expected", [
+    ({"verified": True, "confidence_band": "match"}, FaceCheckStatus.MATCHED),
+    ({"verified": False, "confidence_band": "no_match"}, FaceCheckStatus.MISMATCH),
+    ({"verified": False, "confidence_band": "possible_match", "similarity": 82.0}, FaceCheckStatus.MISMATCH),
+    ({"face_found_id": False}, FaceCheckStatus.NO_FACE_ID),
+    ({"face_found_selfie": False}, FaceCheckStatus.NO_FACE_SELFIE),
+    # the order: error, no face in the ID, no face in the selfie, verified / not verified
+    ({"error": "selfie_image_rejected"}, FaceCheckStatus.ERROR),
+    ({"error": "x", "verified": True}, FaceCheckStatus.ERROR),
+    ({"error": "x", "face_found_id": False}, FaceCheckStatus.ERROR),  # an error wins over a no-face flag
+    ({"face_found_id": False, "face_found_selfie": False}, FaceCheckStatus.NO_FACE_ID),
+    ({"face_found_selfie": False, "verified": True}, FaceCheckStatus.NO_FACE_SELFIE),
+    # liveness is never reported by Rekognition (None) and is never consulted: it cannot produce LIVENESS_FAILED
+    ({"liveness_passed": None, "verified": False}, FaceCheckStatus.MISMATCH),
+    ({"liveness_passed": False, "verified": True}, FaceCheckStatus.MATCHED),
+    ({"liveness_passed": False, "verified": False}, FaceCheckStatus.MISMATCH),
+    # selfie quality warnings never override a MATCHED result
+    ({"verified": True, "warnings": ["eyes_closed", "selfie_blurry", "selfie_dark", "sunglasses", "multiple_faces_selfie"],
+      "selfie_quality_ok": False}, FaceCheckStatus.MATCHED),
+])
+async def test_classify_follows_the_documented_order(make_service, over, expected):
     svc, mock = make_service()
-    mock.script = [httpx.Response(422, json=result(
-        verified=False, distance=None, face_found_id=False, face_found_selfie=False, error="no face found in ID photo"))]
-    r = await call(svc)
-    assert len(mock.requests) == 1 and r.error == "no face found in ID photo" and classify(r) == FaceCheckStatus.NO_FACE_ID
+    mock.default = result(**over)
+    status = classify(await call(svc))
+    assert status == expected
+    assert status != FaceCheckStatus.LIVENESS_FAILED
 
 
-async def test_the_apis_quality_gate_answer_keeps_its_reasons_for_operations():
-    """The real API answers 422 {"error": "image quality check failed", "issues": [...]} for soft (WhatsApp) photos."""
-    svc, mock = make_service()
-    mock.script = [httpx.Response(422, json={"error": "image quality check failed", "issues": [
-        "ID photo is too blurry (sharpness 18.5 < 25.0)", "selfie is too blurry (sharpness 18.4 < 60.0)"]})]
-    r = await call(svc)
-    assert len(mock.requests) == 1 and classify(r) == FaceCheckStatus.ERROR
-    assert r.error == ("image quality check failed: ID photo is too blurry (sharpness 18.5 < 25.0); "
-                       "selfie is too blurry (sharpness 18.4 < 60.0)")
+def test_a_result_with_no_verdict_is_an_error():
+    assert classify(FaceResult()) == FaceCheckStatus.ERROR
+    assert classify(FaceResult(model="aws-rekognition-compare-faces")) == FaceCheckStatus.ERROR
 
 
-def photo(seed: int, size=(640, 480)) -> bytes:
-    import random
-
-    rnd = random.Random(seed)
-    im = Image.new("RGB", size)
-    px = im.load()
-    for x in range(0, size[0], 8):
-        for y in range(0, size[1], 8):
-            c = (rnd.randrange(256), rnd.randrange(256), rnd.randrange(256))
-            for i in range(8):
-                for j in range(8):
-                    if x + i < size[0] and y + j < size[1]:
-                        px[x + i, y + j] = c
-    buf = io.BytesIO()
-    im.save(buf, format="JPEG", quality=70)
-    return buf.getvalue()
+# ------------------------------------------------------------------ 3. the retry tip comes from the selfie warnings
+@pytest.mark.parametrize("warnings,tip", [
+    (["eyes_closed"], "Keep your eyes open"), (["sunglasses"], "take off your sunglasses"), (["selfie_dark"], "Face the light"),
+    (["selfie_blurry"], "steady"), (["multiple_faces_selfie"], "only your face"),
+    (["selfie_dark", "eyes_closed"], "Keep your eyes open"),  # one tip: the first in priority order
+])
+def test_one_specific_tip_is_chosen_from_the_warnings(warnings, tip):
+    assert tip in (M.face_tip(warnings) or "")
 
 
-BLUR_SELFIE = {"error": "image quality check failed", "issues": ["selfie is too blurry (sharpness 18.4 < 60.0)"]}
-BLUR_BOTH = {"error": "image quality check failed", "issues": [
-    "ID photo is too blurry (sharpness 18.5 < 25.0)", "selfie is too blurry (sharpness 18.4 < 60.0)"]}
-
-
-def part(req: httpx.Request, name: str) -> bytes:
-    """The bytes of one multipart file field."""
-    marker = f'name="{name}"'.encode()
-    start = req.content.index(b"\r\n\r\n", req.content.index(marker)) + 4
-    return req.content[start:req.content.index(b"\r\n--", start)]
-
-
-async def test_a_too_blurry_rejection_is_retried_once_with_only_that_photo_sharpened():
-    svc, mock = make_service()
-    id_jpg, selfie_jpg = photo(1), photo(2)
-    mock.script = [httpx.Response(422, json=BLUR_SELFIE), reply(verified=True, distance=0.3)]
-    r = await call(svc, id_image=id_jpg, id_mime="image/jpeg", selfie_image=selfie_jpg, selfie_mime="image/jpeg")
-    assert r.verified is True and len(mock.requests) == 2
-    first, second = mock.requests
-    assert part(first, "selfie_image") == selfie_jpg and part(first, "id_image") == id_jpg
-    assert part(second, "id_image") == id_jpg  # the ID was not flagged: sent as it was
-    assert part(second, "selfie_image") != selfie_jpg and part(second, "selfie_image")[:2] == b"\xff\xd8"  # a sharpened JPEG
-
-
-async def test_both_photos_flagged_are_both_sharpened_and_a_png_is_sent_as_jpeg():
-    svc, mock = make_service()
-    buf = io.BytesIO()
-    Image.open(io.BytesIO(photo(3))).save(buf, format="PNG")
-    png = buf.getvalue()
-    mock.script = [httpx.Response(422, json=BLUR_BOTH), reply(verified=True)]
-    await call(svc, id_image=png, id_mime="image/png", selfie_image=photo(4), selfie_mime="image/jpeg")
-    second = mock.requests[1].content
-    assert part(mock.requests[1], "id_image") != png and b'filename="id.jpg"' in second and b"Content-Type: image/png" not in second
-
-
-async def test_the_sharpen_retry_happens_only_once_and_a_second_blur_is_an_error():
-    svc, mock = make_service()
-    mock.script = [httpx.Response(422, json=BLUR_SELFIE), httpx.Response(422, json=BLUR_SELFIE)]
-    r = await call(svc, id_image=photo(5), id_mime="image/jpeg", selfie_image=photo(6), selfie_mime="image/jpeg")
-    assert len(mock.requests) == 2 and classify(r) == FaceCheckStatus.ERROR and "too blurry" in r.error
-
-
-async def test_the_sharpen_retry_can_be_switched_off_and_other_rejections_do_not_trigger_it():
-    svc, mock = make_service(face_verify_sharpen_retry=False)
-    mock.script = [httpx.Response(422, json=BLUR_SELFIE)]
-    r = await call(svc, id_image=photo(5), id_mime="image/jpeg", selfie_image=photo(6), selfie_mime="image/jpeg")
-    assert len(mock.requests) == 1 and classify(r) == FaceCheckStatus.ERROR
-    svc2, mock2 = make_service()
-    mock2.script = [httpx.Response(422, json={"error": "image quality check failed", "issues": ["selfie is too dark"]})]
-    await call(svc2, id_image=photo(5), id_mime="image/jpeg", selfie_image=photo(6), selfie_mime="image/jpeg")
-    assert len(mock2.requests) == 1
-    svc3, mock3 = make_service()  # a good photo is never touched
-    await call(svc3, id_image=photo(5), id_mime="image/jpeg", selfie_image=photo(6), selfie_mime="image/jpeg")
-    assert len(mock3.requests) == 1
-
-
-async def test_an_unreadable_image_keeps_the_first_result_instead_of_failing():
-    svc, mock = make_service()
-    mock.script = [httpx.Response(422, json=BLUR_SELFIE)]
-    r = await call(svc)  # SELFIEBYTES is not an image Pillow can read
-    assert len(mock.requests) == 1 and classify(r) == FaceCheckStatus.ERROR
-
-
-async def test_a_blurry_whatsapp_selfie_ends_matched_after_the_sharpen_retry_in_the_flow(env, face):
-    face.script = [httpx.Response(422, json=BLUR_SELFIE), reply(verified=True)]
-    await with_selfie(env)
-    assert len(face.requests) == 2 and await env.stage() == "COLLECT_FARM_PHOTOS"
-    (selfie,) = await rows(env, "SELFIE")
-    assert selfie.face_check_status == "MATCHED"
-    assert "couldn't finish" not in env.graph.texts()[-1]
-
-
-async def test_a_real_validation_4xx_fails_with_the_field_names_but_no_values():
-    svc, mock = make_service()
-    mock.script = [httpx.Response(422, json={"detail": [
-        {"loc": ["body", "id_image"], "msg": "Field required", "type": "missing", "input": None},
-        {"loc": ["body", "selfie_image"], "msg": "Field required", "type": "missing", "input": "SECRETVALUE"}]})]
-    with pytest.raises(FaceVerifyError) as e:
-        await call(svc)
-    assert e.value.reason == "http_422 body.id_image: Field required; body.selfie_image: Field required"
-    assert "SECRETVALUE" not in e.value.reason and len(mock.requests) == 1
+def test_no_tip_without_a_known_warning():
+    assert M.face_tip([]) is None and M.face_tip(None) is None and M.face_tip(["small_face_id"]) is None
+    assert "Keep your eyes open" not in M.face_mismatch_reply().body
+    assert "Keep your eyes open" in M.face_mismatch_reply(M.face_tip(["eyes_closed"])).body
 
 
 # ------------------------------------------------------------------ 4. flow: results
@@ -360,15 +243,17 @@ async def test_mismatch_offers_two_buttons_with_tips_and_shows_no_score(env, fac
     assert msg.startswith("Your selfie doesn't seem to match the photo on your ID. Please choose an option:")
     assert "face the light" in msg and "no cap or sunglasses" in msg
     assert env.graph.last_buttons() == ["selfie_new", "id_reupload"]
-    for secret in (SCORE, "0.68", "ArcFace", "no_match"):
+    for secret in (SCORE, "90.0", "aws-rekognition", "no_match"):
         assert secret not in " ".join(texts)
     (selfie,) = await rows(env, "SELFIE")
     (id_front,) = await rows(env, "ID_FRONT")
     assert selfie.face_check_status == "MISMATCH" and selfie.face_verified is False
-    assert float(selfie.face_distance) == 0.9673 and float(selfie.face_threshold) == 0.68
-    assert (selfie.face_confidence_band, selfie.face_model, selfie.face_detector) == ("no_match", "ArcFace", "retinaface")
-    assert selfie.face_liveness_passed and selfie.face_found_id and selfie.face_found_selfie
-    assert float(selfie.face_processing_ms) == 13800.2 and selfie.face_warnings is None and selfie.face_error_message is None
+    assert float(selfie.face_similarity) == 41.3 and float(selfie.face_threshold) == 90.0 and selfie.face_distance is None
+    assert (selfie.face_confidence_band, selfie.face_model, selfie.face_detector) == (
+        "no_match", "aws-rekognition-compare-faces", None)
+    assert selfie.face_liveness_passed is None and selfie.face_found_id and selfie.face_found_selfie
+    assert selfie.face_selfie_quality_ok is True
+    assert float(selfie.face_processing_ms) == 5200.5 and selfie.face_warnings is None and selfie.face_error_message is None
     assert selfie.face_compared_id_document_id == id_front.id and selfie.face_check_attempts == 1
     assert selfie.face_checked_at is not None and selfie.status == "ACCEPTED"
     dr = await draft(env)
@@ -376,36 +261,35 @@ async def test_mismatch_offers_two_buttons_with_tips_and_shows_no_score(env, fac
     assert id_front.face_check_status is None  # the face check lives on the selfie row only
 
 
-async def test_the_request_carries_the_stored_id_front_and_selfie(env, face):
+async def test_the_images_sent_are_the_stored_id_front_and_selfie_bytes(env, face):
     await to_selfie(env)
     (id_front,) = await rows(env, "ID_FRONT")
     await env.identity_image()
     (req,) = face.requests
-    stored = await env.c.identity.storage.get(id_front.storage_key)
     (selfie,) = await rows(env, "SELFIE")
+    stored_id = await env.c.identity.storage.get(id_front.storage_key)
     stored_selfie = await env.c.identity.storage.get(selfie.storage_key)
-    assert stored in req.content and stored_selfie in req.content
-    assert b'name="id_image"; filename="id.jpg"' in req.content and b'name="selfie_image"; filename="selfie.jpg"' in req.content
+    assert req == (stored_id, stored_selfie)  # the current ACCEPTED ID front, then the current selfie
 
 
 async def test_matched_continues_and_marks_the_selfie_received(env, face):
-    face.verdict(verified=True, distance=0.31, confidence_band="strong_match")
+    face.verdict(verified=True, similarity=96.0, confidence_band="match")
     await with_selfie(env)
     assert env.graph.texts()[-1].startswith("Thank you, your selfie has been received ✅.")
     assert await env.stage() == "COLLECT_FARM_PHOTOS"
     (selfie,) = await rows(env, "SELFIE")
     assert selfie.face_check_status == "MATCHED" and selfie.face_verified is True and selfie.face_check_attempts == 0
     assert (await draft(env))["selfie_doc"] == str(selfie.id)
-    assert "0.31" not in " ".join(env.graph.texts())
+    assert "96.0" not in " ".join(env.graph.texts())
 
 
 async def test_no_face_in_the_id_asks_for_a_clearer_id_photo_and_supersedes_the_id(env, face):
     face.verdict(face_found_id=False, verified=False)
     await with_selfie(env)
     assert "photo on your ID isn't clear" in env.graph.texts()[-1]
-    (id_front,) = await rows(env, "ID_FRONT")
+    assert await rows(env, "ID_FRONT") == []  # the unclear ID is deleted
     (selfie,) = await rows(env, "SELFIE")
-    assert id_front.status == "SUPERSEDED" and selfie.face_check_status == "NO_FACE_ID" and selfie.status == "ACCEPTED"
+    assert selfie.face_check_status == "NO_FACE_ID" and selfie.status == "ACCEPTED"
     dr = await draft(env)
     assert dr["id_front_doc"] is None and dr["selfie_doc"] == str(selfie.id) and dr["face_check_attempts"] == 1
     assert await env.stage() == "COLLECT_ID_DOCUMENT"
@@ -418,20 +302,11 @@ async def test_no_face_in_the_id_asks_for_a_clearer_id_photo_and_supersedes_the_
     assert selfie.face_check_status == "MATCHED" and selfie.face_compared_id_document_id == new_id.id
 
 
-async def test_the_apis_422_no_face_answer_asks_for_a_clearer_id_photo(env, face):
-    face.script = [httpx.Response(422, json=result(
-        verified=False, distance=None, face_found_id=False, face_found_selfie=False, error="no face found in ID photo"))]
-    await with_selfie(env)
-    assert "photo on your ID isn't clear" in env.graph.texts()[-1] and len(face.requests) == 1
-    (selfie,) = await rows(env, "SELFIE")
-    assert selfie.face_check_status == "NO_FACE_ID" and selfie.face_error_message == "no face found in ID photo"
-    assert "no face found" not in " ".join(env.graph.texts())  # the API's wording is for operations, not the farmer
 
 
-@pytest.mark.parametrize("over,status", [({"face_found_selfie": False}, "NO_FACE_SELFIE"),
-                                         ({"liveness_passed": False}, "LIVENESS_FAILED")])
-async def test_unusable_selfie_asks_for_a_new_one_with_a_new_challenge(env, face, over, status):
-    face.verdict(**over)
+
+async def test_no_face_in_the_selfie_asks_for_a_new_one_with_a_new_challenge(env, face):
+    face.verdict(face_found_selfie=False)
     await to_selfie(env)
     old = (await draft(env))["selfie_challenge"]
     await env.identity_image()
@@ -439,7 +314,7 @@ async def test_unusable_selfie_asks_for_a_new_one_with_a_new_challenge(env, face
     assert "take a new selfie now with your front camera" in msg and "finger" in msg
     assert "selfie_new" not in env.graph.last_buttons()  # no choice to make: just a new selfie
     (selfie,) = await rows(env, "SELFIE")
-    assert selfie.face_check_status == status and selfie.status == "REJECTED"
+    assert selfie.face_check_status == "NO_FACE_SELFIE" and selfie.status == "REJECTED"
     dr = await draft(env)
     assert dr["selfie_doc"] is None and dr["selfie_challenge"] != old and await env.stage() == "COLLECT_SELFIE"
     face.verdict(verified=True)
@@ -447,36 +322,17 @@ async def test_unusable_selfie_asks_for_a_new_one_with_a_new_challenge(env, face
     assert await env.stage() == "COLLECT_FARM_PHOTOS"
 
 
-@pytest.mark.parametrize("failure,calls", [
-    (reply(error="no face detected"), 1), (httpx.Response(500), 3), (httpx.ReadTimeout("slow"), 3), (httpx.Response(401), 1),
-    (httpx.Response(200, content=b"not json"), 1), (reply(verified=None), 1),
-])
-async def test_api_failure_or_error_field_does_not_block_the_farmer(env, face, failure, calls):
-    face.script = [failure] * 3
-    await with_selfie(env)
-    assert len(face.requests) == calls
-    (selfie,) = await rows(env, "SELFIE")
-    assert selfie.face_check_status == "ERROR" and selfie.face_checked_at is not None
-    assert await env.stage() == "COLLECT_FARM_PHOTOS" and (await draft(env))["selfie_doc"] == str(selfie.id)
-    last = env.graph.texts()[-1]  # the farmer is told the check is pending, and nothing else about it
-    assert last.startswith("Thank you, your selfie has been received") and "couldn't finish the automatic photo check" in last
-    assert "Ezina team will complete the check" in last
-    joined = " ".join(env.graph.texts()).lower()
-    assert "match" not in joined.replace("checking", "") and "401" not in joined and "http_" not in joined
-
-
-async def test_quality_gate_rejection_never_blocks_the_farmer_and_is_kept_for_operations(env, face):
-    blur = {"error": "image quality check failed", "issues": ["selfie is too blurry (sharpness 18.4 < 60.0)"]}
-    face.script = [httpx.Response(422, json=blur), httpx.Response(422, json=blur)]  # still too blurry after the retry
+async def test_a_rejected_photo_never_blocks_the_farmer_and_the_reason_is_kept_for_operations(env, face):
+    face.script = [result(error="selfie_image_rejected", face_found_selfie=False, verified=False)]
     await with_selfie(env)
     (selfie,) = await rows(env, "SELFIE")
-    assert selfie.face_check_status == "ERROR" and "too blurry" in selfie.face_error_message
+    assert selfie.face_check_status == "ERROR" and selfie.face_error_message == "selfie_image_rejected"
     assert await env.stage() == "COLLECT_FARM_PHOTOS" and (await draft(env))["selfie_doc"] == str(selfie.id)
-    assert "blurry" not in " ".join(env.graph.texts()) and "sharpness" not in " ".join(env.graph.texts())
+    assert "rejected" not in " ".join(env.graph.texts())
 
 
 async def test_error_message_from_the_api_is_kept_for_operations_only(env, face):
-    face.script = [reply(error="no face detected in id_image")]
+    face.script = [result(error="no face detected in id_image")]
     await with_selfie(env)
     (selfie,) = await rows(env, "SELFIE")
     assert selfie.face_error_message == "no face detected in id_image"
@@ -502,19 +358,21 @@ async def test_the_check_never_verifies_a_farmer(env, face):
 
 
 # ------------------------------------------------------------------ 5. flow: PDF ID
-async def test_pdf_id_front_is_converted_to_a_png_before_sending(env, face):
+async def test_a_pdf_id_front_stored_earlier_is_converted_to_a_png_before_matching(env, face):
+    # PDFs are refused now; an ID stored as a PDF before that is still converted (enable PDFs to create one here)
+    env.c.settings.identity_document_mime = ("image/jpeg", "image/png", "application/pdf")
     await env.run_registration_until("id_type")
     await env.document(mime="application/pdf", data=real_pdf())
     assert await env.stage() == "COLLECT_SELFIE"
     await env.identity_image()
     (req,) = face.requests
-    assert b'name="id_image"; filename="id.png"' in req.content and b"\x89PNG" in req.content
-    assert b"%PDF" not in req.content
+    assert req[0].startswith(b"\x89PNG") and b"%PDF" not in req[0]
     (id_front,) = await rows(env, "ID_FRONT")
     assert id_front.mime_type == "application/pdf"  # what is stored is untouched
 
 
 async def test_a_pdf_that_cannot_be_converted_skips_the_check(env, face):
+    env.c.settings.identity_document_mime = ("image/jpeg", "image/png", "application/pdf")
     await env.run_registration_until("id_type")
     await env.document(mime="application/pdf")  # the test PDF is not a renderable document
     await env.identity_image()
@@ -590,7 +448,7 @@ async def test_upload_another_id_supersedes_the_id_and_the_new_one_is_compared_w
     (selfie,) = await rows(env, "SELFIE")
     await env.button("id_reupload", "Upload another ID")
     assert env.graph.last()["interactive"]["action"].get("sections")  # back to the ID type list
-    assert (await rows(env, "ID_FRONT"))[0].status == "SUPERSEDED" and first_id.id == (await rows(env, "ID_FRONT"))[0].id
+    assert await rows(env, "ID_FRONT") == []  # the old ID is deleted
     assert (await draft(env))["selfie_doc"] == str(selfie.id)  # the selfie stays
     face.verdict(verified=True)
     await env.button("idtype_OMANG", "Omang")
@@ -601,26 +459,29 @@ async def test_upload_another_id_supersedes_the_id_and_the_new_one_is_compared_w
     (selfie,) = await rows(env, "SELFIE")
     assert selfie.face_check_status == "MATCHED" and selfie.face_compared_id_document_id == new_id.id
     assert selfie.face_check_attempts == 1 and await env.stage() == "COLLECT_FARM_PHOTOS"
-    assert face.requests[0].content != face.requests[1].content  # a different ID went out the second time
+    assert face.requests[0][0] != face.requests[1][0]  # a different ID went out the second time
 
 
-async def test_the_new_id_goes_through_the_name_check_before_the_face_check(env, face):
-    name_calls: list[httpx.Request] = []
+async def test_the_new_id_goes_through_the_name_check_before_the_face_check(env, face, monkeypatch):
+    from ezina_id_verify import NameResult
 
-    def name_api(request: httpx.Request) -> httpx.Response:
-        name_calls.append(request)
-        return httpx.Response(200, json={"fields": {"given_names": {"value": "John"}}})
+    name_calls: list[tuple[str, bytes]] = []
 
+    async def fake_extract_name(doc_type: str, image: bytes) -> NameResult:
+        name_calls.append((doc_type, image))
+        return NameResult(doc_type=doc_type, found=True, full_name="John", method="label", confidence=0.85, warnings=[])
+
+    monkeypatch.setattr(doc_extract_service, "extract_name", fake_extract_name)
     s = env.c.settings
-    s.doc_extract_enabled, s.doc_extract_api_url, s.doc_extract_retry_base_delay = True, "https://extract.test/x", 0
-    env.c.doc_extract = DocExtractService(s, client=httpx.AsyncClient(transport=httpx.MockTransport(name_api)))
-    await with_selfie(env)  # the Omang is not name-checked; the face check mismatches
-    assert name_calls == [] and env.graph.last_buttons() == ["selfie_new", "id_reupload"]
+    s.doc_extract_enabled = True
+    env.c.doc_extract = DocExtractService(s)
+    await with_selfie(env)  # the Omang is name-checked too (botswana_omang); the face check mismatches
+    assert [c[0] for c in name_calls] == ["botswana_omang"] and env.graph.last_buttons() == ["selfie_new", "id_reupload"]
     await env.button("id_reupload", "Upload another ID")
     face.verdict(verified=True)
     await env.button("idtype_PASSPORT", "Passport")
     await env.identity_image()
-    assert len(name_calls) == 1  # name check first (a passport)
+    assert [c[0] for c in name_calls] == ["botswana_omang", "passport"]  # name check first (a passport)
     assert len(face.requests) == 2 and await env.stage() == "COLLECT_FARM_PHOTOS"
     (selfie,) = await rows(env, "SELFIE")
     assert selfie.face_check_status == "MATCHED"
@@ -643,7 +504,7 @@ async def test_free_text_is_interpreted_by_claude(env, face):
     await env.identity_image()
     env.claude.push(make_ai(Intent.SUBMIT_IDENTITY_DOCUMENTS, identity_choice="OTHER_ID"))
     await env.text("can I use my voter ID")
-    assert (await rows(env, "ID_FRONT"))[0].status == "SUPERSEDED" and await env.stage() == "COLLECT_ID_DOCUMENT"
+    assert await rows(env, "ID_FRONT") == [] and await env.stage() == "COLLECT_ID_DOCUMENT"
 
 
 async def test_other_free_text_shows_the_two_buttons_again(env, face):
@@ -744,12 +605,11 @@ async def test_scores_never_reach_logs_claude_prompts_or_farmer_messages(env, fa
     assert env.claude.contexts
     for ctx in env.claude.contexts:
         prompt = build_user_message(ctx)
-        for secret in (SCORE, "0.68", "ArcFace", "retinaface", "no_match"):
+        for secret in (SCORE, "90.0", "aws-rekognition", "no_match"):
             assert secret not in prompt
-    for secret in (SCORE, "0.68", "no_match", "retinaface"):
+    for secret in (SCORE, "90.0", "no_match", "aws-rekognition"):
         assert secret not in app_log_text(caplog)
         assert secret not in " ".join(env.graph.texts())
-    assert "image/jpeg" not in app_log_text(caplog) or "IDBYTES" not in app_log_text(caplog)
 
 
 async def test_non_english_mismatch_wording_comes_from_claude_and_is_guarded(env, face):
@@ -785,18 +645,124 @@ def test_the_reply_guard_allows_a_face_match_statement_only_when_python_supplied
 
 
 async def test_admin_detail_returns_the_face_result_on_the_selfie_row_only(env, face):
+    face.verdict(similarity=82.4, confidence_band="possible_match", warnings=["eyes_closed"], selfie_quality_ok=False)
     await with_selfie(env)
     f = await env.farmer()
     r = await env.client.get(f"/api/admin/farmers/{f.id}", headers={"X-API-Key": ADMIN_KEY})
     ident = r.json()["identity_documents"]
     (selfie,) = [d for d in ident if d["kind"] == "SELFIE"]
     (id_front,) = [d for d in ident if d["kind"] == "ID_FRONT"]
-    assert selfie["face_check_status"] == "MISMATCH" and selfie["face_distance"] == 0.9673 and selfie["face_threshold"] == 0.68
+    assert selfie["face_check_status"] == "MISMATCH" and selfie["face_similarity"] == 82.4 and selfie["face_threshold"] == 90.0
+    assert selfie["face_confidence_band"] == "possible_match" and selfie["face_selfie_quality_ok"] is False
+    assert selfie["face_warnings"] == ["eyes_closed"] and "face_distance" not in selfie
     assert selfie["face_compared_id_document_id"] == id_front["id"] and selfie["face_check_attempts"] == 1
-    assert id_front["face_check_status"] is None and id_front["face_distance"] is None
+    assert id_front["face_check_status"] is None and id_front["face_similarity"] is None
 
 
-# ------------------------------------------------------------------ 10. migration 0005
+# ------------------------------------------------------------------ 10. new behaviour of the Rekognition integration
+async def test_a_matched_result_stores_everything_and_warnings_do_not_override_it(env, face):
+    face.verdict(verified=True, similarity=97.25, confidence_band="match", warnings=["eyes_closed"], selfie_quality_ok=False)
+    await with_selfie(env)
+    assert await env.stage() == "COLLECT_FARM_PHOTOS" and env.graph.texts()[-1].startswith("Thank you, your selfie has been received")
+    assert "eyes" not in env.graph.texts()[-1].lower()  # a match is never second-guessed to the farmer
+    (selfie,) = await rows(env, "SELFIE")
+    assert selfie.face_check_status == "MATCHED" and selfie.face_verified is True
+    assert float(selfie.face_similarity) == 97.25 and float(selfie.face_threshold) == 90.0
+    assert selfie.face_confidence_band == "match" and selfie.face_liveness_passed is None
+    assert selfie.face_found_id is True and selfie.face_found_selfie is True and selfie.face_selfie_quality_ok is False
+    assert selfie.face_model == "aws-rekognition-compare-faces" and float(selfie.face_processing_ms) == 5200.5
+    assert selfie.face_warnings == ["eyes_closed"] and selfie.face_error_message is None
+    assert selfie.face_distance is None and selfie.face_detector is None  # the old API's columns are not written
+
+
+@pytest.mark.parametrize("band,similarity", [("possible_match", 82.0), ("no_match", 12.0)])
+async def test_possible_match_and_no_match_are_both_a_mismatch_with_the_two_buttons(env, face, band, similarity):
+    face.verdict(verified=False, confidence_band=band, similarity=similarity)
+    await with_selfie(env)
+    assert env.graph.last_buttons() == ["selfie_new", "id_reupload"]
+    (selfie,) = await rows(env, "SELFIE")
+    assert selfie.face_check_status == "MISMATCH" and selfie.face_confidence_band == band
+    assert str(similarity) not in " ".join(env.graph.texts()) and band not in " ".join(env.graph.texts())
+
+
+async def test_liveness_none_never_produces_liveness_failed(env, face):
+    face.verdict(verified=False, liveness_passed=None)
+    await with_selfie(env)
+    (selfie,) = await rows(env, "SELFIE")
+    assert selfie.face_check_status == "MISMATCH" and selfie.face_liveness_passed is None
+
+
+@pytest.mark.parametrize("warning,tip", [("eyes_closed", "Keep your eyes open"), ("sunglasses", "take off your sunglasses"),
+                                         ("selfie_dark", "Face the light so your face"), ("selfie_blurry", "Hold the phone steady")])
+async def test_a_mismatch_adds_one_specific_tip_from_the_selfie_warning(env, face, warning, tip):
+    face.verdict(verified=False, warnings=[warning], selfie_quality_ok=False)
+    await with_selfie(env)
+    msg = env.graph.texts()[-1]
+    assert msg.startswith("Your selfie doesn't seem to match the photo on your ID") and tip in msg
+    assert env.graph.last_buttons() == ["selfie_new", "id_reupload"]
+
+
+async def test_a_mismatch_without_a_warning_has_no_extra_tip(env, face):
+    await with_selfie(env)
+    assert "Keep your eyes open" not in env.graph.texts()[-1] and "sunglasses" not in env.graph.texts()[-1].replace("no cap or sunglasses", "")
+
+
+async def test_no_face_in_the_selfie_adds_the_tip_too(env, face):
+    face.verdict(face_found_selfie=False, warnings=["sunglasses"])
+    await with_selfie(env)
+    msg = env.graph.texts()[-1]
+    assert "take a new selfie now with your front camera" in msg and "take off your sunglasses" in msg
+
+
+async def test_the_tip_is_passed_to_claude_for_non_english_wording_without_scores(env, face):
+    await to_selfie(env)
+    async with env.c.db.sessionmaker() as s, s.begin():
+        conv = await s.get(Conversation, (await env.conv()).id)
+        conv.draft = {**conv.draft, "preferred_language": "tn"}
+    face.verdict(verified=False, warnings=["eyes_closed"])
+    env.claude.push(make_ai(text="Selfie ya gago ga e tshwane le setshwantsho sa ID. Bula matlho. Tlhopha tsela."))
+    await env.identity_image()
+    ctx = env.claude.contexts[-1]
+    assert "Keep your eyes open" in (ctx.reply_target or "") and SCORE not in build_user_message(ctx)
+
+
+async def test_the_selfie_quality_fields_survive_a_later_check(env, face):
+    face.verdict(verified=False, warnings=["selfie_dark"], selfie_quality_ok=False)
+    await with_selfie(env)
+    await env.button("selfie_new")
+    face.verdict(verified=True)
+    await env.identity_image()
+    first, second = await rows(env, "SELFIE")
+    assert first.face_warnings == ["selfie_dark"] and first.face_selfie_quality_ok is False
+    assert second.face_warnings is None and second.face_check_status == "MATCHED"
+
+
+async def test_the_database_rejects_face_columns_on_id_rows(env, face):
+    from sqlalchemy.exc import IntegrityError
+
+    await with_selfie(env)
+    (id_front,) = await rows(env, "ID_FRONT")
+    for column, value in (("face_similarity", 90.0), ("face_selfie_quality_ok", True), ("face_threshold", 90.0),
+                          ("face_check_status", "MATCHED")):
+        with pytest.raises(IntegrityError):
+            async with env.c.db.sessionmaker() as s, s.begin():
+                setattr(await s.get(IdentityDocument, id_front.id), column, value)
+    async with env.c.db.sessionmaker() as s, s.begin():  # the same columns are fine on the selfie
+        (selfie,) = [d for d in await env.all(IdentityDocument) if d.kind == "SELFIE"]
+        row = await s.get(IdentityDocument, selfie.id)
+        row.face_similarity, row.face_selfie_quality_ok = 91.0, True
+
+
+async def test_the_flag_for_operations_log_has_no_personal_data(env, face, caplog):
+    face.script = [RekognitionServiceError("AWS failed for SECRET-NAME-IN-MESSAGE", "ThrottlingException")]
+    with caplog.at_level(logging.DEBUG, logger="ezina"):
+        await with_selfie(env)
+    assert "SECRET-NAME-IN-MESSAGE" not in app_log_text(caplog)  # only the AWS error code is kept
+    (selfie,) = await rows(env, "SELFIE")
+    assert selfie.face_error_message == "ThrottlingException"
+
+
+# ------------------------------------------------------------------ 11. migration 0005
 def _alembic(db, *args):
     import subprocess
     import sys
@@ -855,3 +821,45 @@ def test_migration_0005_on_a_fresh_database_is_a_no_op_after_0001(tmp_path):
     assert _alembic(db, "upgrade", "head").returncode == 0
     assert _alembic(db, "downgrade", "0004").returncode == 0
     assert not NEW_COLS & _ident_cols(db)
+
+
+# ------------------------------------------------------------------ a selfie with a problem can be sent again
+async def test_the_same_selfie_can_be_sent_again_after_a_mismatch_and_a_new_selfie_request(env, face):
+    photo = make_image()  # identical bytes both times (the helper makes a new random image otherwise)
+    face.verdict(verified=False)
+    await to_selfie(env)
+    await env.identity_image(data=photo)
+    assert "doesn't seem to match" in env.graph.texts()[-1] or "match" in env.graph.texts()[-1]
+    await env.button("selfie_new", "Take a new selfie")
+    face.verdict(verified=True)
+    await env.identity_image(data=photo)
+    assert "already been used" not in " ".join(env.graph.texts())
+    assert await env.stage() == "COLLECT_FARM_PHOTOS"
+    statuses = sorted(s.status for s in await rows(env, "SELFIE"))
+    assert statuses == ["ACCEPTED", "SUPERSEDED"]  # the old row stays (it carries the attempt count)
+
+
+async def test_the_same_selfie_can_be_sent_again_after_no_face_was_found(env, face):
+    photo = make_image()
+    face.verdict(face_found_selfie=False, verified=False)
+    await to_selfie(env)
+    await env.identity_image(data=photo)
+    assert "new selfie" in env.graph.texts()[-1]
+    face.verdict(verified=True)
+    await env.identity_image(data=photo)
+    assert "already been used" not in " ".join(env.graph.texts()) and await env.stage() == "COLLECT_FARM_PHOTOS"
+
+
+async def test_another_farmers_selfie_photo_is_still_refused(env, face):
+    import hashlib
+    import uuid
+
+    photo = make_image()
+    await to_selfie(env)
+    async with env.c.db.sessionmaker() as s, s.begin():
+        s.add(IdentityDocument(
+            farmer_id=uuid.uuid4(), country="BW", kind="SELFIE", wa_media_id="OTHERMEDIA", storage_key="identity/x/selfie/x.jpg",
+            mime_type="image/jpeg", size_bytes=len(photo), sha256=hashlib.sha256(photo).hexdigest(), quality_result={},
+            attempt=1, status="ACCEPTED", face_check_attempts=0))
+    await env.identity_image(data=photo)
+    assert "already been used" in env.graph.texts()[-1] and await env.stage() == "COLLECT_SELFIE"

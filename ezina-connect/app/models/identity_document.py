@@ -37,7 +37,8 @@ class IdentityDocument(UUIDPk, TimestampMixin, Base):
             "face_confidence_band IS NULL AND face_liveness_passed IS NULL AND face_found_id IS NULL AND "
             "face_found_selfie IS NULL AND face_model IS NULL AND face_detector IS NULL AND "
             "face_processing_ms IS NULL AND face_warnings IS NULL AND face_error_message IS NULL AND "
-            "face_checked_at IS NULL AND face_check_attempts = 0)",
+            "face_checked_at IS NULL AND face_check_attempts = 0 AND face_similarity IS NULL AND "
+            "face_selfie_quality_ok IS NULL)",
             name="ck_identity_documents_face_only_selfie",
         ),
     )
@@ -64,23 +65,28 @@ class IdentityDocument(UUIDPk, TimestampMixin, Base):
     extracted_name: Mapped[str | None] = mapped_column(Text)
     name_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     name_check_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    name_extract_method: Mapped[str | None] = mapped_column(Text)  # how the name was read: mrz | label | layout | llm
+    name_extract_confidence: Mapped[float | None] = mapped_column(Numeric(5, 4))  # 0-1, from ezina_id_verify
 
     # Face check (SELFIE rows only; NULL on other kinds): the selfie compared with the ID front's photo. Advisory.
-    # Only the fields below are kept from the API response; the scores are for the operations team, never the farmer.
+    # Only the fields below are kept from the ezina_id_verify result; the scores are for the operations team, never the
+    # farmer. face_distance and face_detector belong to the old HTTP API: kept for existing rows, no longer written.
     face_check_status: Mapped[str | None] = mapped_column(String(16), index=True)
     face_compared_id_document_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("identity_documents.id", ondelete="SET NULL", name="fk_identity_documents_face_compared_id")
         # the ID_FRONT row used for the comparison
     )
     face_verified: Mapped[bool | None] = mapped_column(Boolean)
-    face_distance: Mapped[float | None] = mapped_column(Numeric(8, 5))
+    face_distance: Mapped[float | None] = mapped_column(Numeric(8, 5))  # legacy, no longer written
+    face_similarity: Mapped[float | None] = mapped_column(Numeric(7, 3))  # 0-100, higher is better
+    face_selfie_quality_ok: Mapped[bool | None] = mapped_column(Boolean)
     face_threshold: Mapped[float | None] = mapped_column(Numeric(8, 5))
     face_confidence_band: Mapped[str | None] = mapped_column(Text)
     face_liveness_passed: Mapped[bool | None] = mapped_column(Boolean)
     face_found_id: Mapped[bool | None] = mapped_column(Boolean)
     face_found_selfie: Mapped[bool | None] = mapped_column(Boolean)
     face_model: Mapped[str | None] = mapped_column(Text)
-    face_detector: Mapped[str | None] = mapped_column(Text)
+    face_detector: Mapped[str | None] = mapped_column(Text)  # legacy, no longer written
     face_processing_ms: Mapped[float | None] = mapped_column(Numeric(12, 1))
     face_warnings: Mapped[list | None] = mapped_column(JSONType)
     face_error_message: Mapped[str | None] = mapped_column(Text)

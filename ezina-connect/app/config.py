@@ -61,33 +61,19 @@ class Settings(BaseSettings):
     identity_max_attempts: int = 3  # failed uploads per image before NEEDS_HELP
     identity_min_image_px: int = 600  # minimum length of the shorter side
     identity_max_bytes: int = 10 * 1024 * 1024
-    identity_allowed_mime: tuple[str, ...] = ("image/jpeg", "image/png", "image/webp")
-    identity_document_mime: tuple[str, ...] = ("image/jpeg", "image/png", "application/pdf")  # ID sent as a document
+    identity_allowed_mime: tuple[str, ...] = ("image/jpeg", "image/png")  # ezina_id_verify reads JPEG and PNG only
+    identity_document_mime: tuple[str, ...] = ("image/jpeg", "image/png")  # an ID sent as a document message: image only (no PDF)
     selfie_challenge_ttl_minutes: int = 10
 
-    # --- ID document name check (external document-extraction API; advisory only) ---
+    # --- ID document name check (ezina_id_verify / AWS Rekognition, called in-process; advisory only) ---
     doc_extract_enabled: bool = False
-    doc_extract_api_url: str = ""
-    doc_extract_api_key: SecretStr = SecretStr("")
-    doc_extract_api_key_header: str = "Authorization"  # "Authorization" is sent as "Bearer <key>"; any other header gets the bare key
-    doc_extract_timeout_seconds: float = 30.0
-    doc_extract_max_retries: int = 2  # retries on timeout / connection error / 5xx (never 4xx)
-    doc_extract_retry_base_delay: float = 1.0  # exponential backoff base, seconds
-    doc_extract_hold_seconds: float = 5.0  # send "Checking your ID..." when the check takes longer than this
     name_match_threshold: float = 90  # score >= this: MATCHED
     name_partial_threshold: float = 75  # score >= this: PARTIAL, below: MISMATCH
     name_check_max_attempts: int = 3  # failed name comparisons (name changes + new IDs) before NEEDS_HELP
 
-    # --- Selfie face check (external face-verification API; advisory only) ---
+    # --- Selfie face check (ezina_id_verify / AWS Rekognition, called in-process; advisory only) ---
     face_verify_enabled: bool = False
-    face_verify_api_url: str = ""
-    face_verify_api_key: SecretStr = SecretStr("")
-    face_verify_api_key_header: str = "Authorization"  # "Authorization" is sent as "Bearer <key>"; any other header gets the bare key
-    face_verify_timeout_seconds: float = 60.0  # the API can take ~15 seconds
-    face_verify_max_retries: int = 2  # retries on timeout / connection error / 5xx (never 4xx)
-    face_verify_retry_base_delay: float = 1.0  # exponential backoff base, seconds
     face_verify_max_attempts: int = 3  # failed face checks (new selfies + new IDs) before NEEDS_HELP
-    face_verify_sharpen_retry: bool = True  # on a "too blurry" quality rejection, retry once with a mildly sharpened copy
 
     # --- Workflow tuning ---
     min_farm_photos: int = 1

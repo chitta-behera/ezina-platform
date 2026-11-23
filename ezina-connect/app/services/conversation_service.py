@@ -816,7 +816,12 @@ class ConversationService:
         d = t.draft
         status = await self._extract_name_with_hold(t, doc)
         if status == NameCheckStatus.NOT_FOUND:  # unreadable name: ask for a clearer photo, counts as an attempt
-            doc.status = IdentityDocStatus.REJECTED.value
+            unsupported = getattr(doc, "name_check_reason", None) == "unsupported_file"
+            await self.c.identity.discard(self.session, doc)  # the unusable photo and its row are removed
+            if unsupported:  # not a usable JPEG/PNG: ask for a photo
+                return await self._identity_failed(
+                    t, IdentityKind.ID_FRONT, IdentityRejected("unsupported_file", M.ID_SEND_PHOTO)
+                )
             return await self._identity_failed(
                 t, IdentityKind.ID_FRONT, IdentityRejected("name_not_found", M.NAME_NOT_FOUND)
             )
@@ -825,12 +830,10 @@ class ConversationService:
         await self._name_compare(t, doc)
 
     async def _extract_name_with_hold(self, t: Turn, doc: IdentityDocument) -> NameCheckStatus:
-        """Run the extraction; if it takes longer than DOC_EXTRACT_HOLD_SECONDS, tell the farmer we are checking."""
-        task = asyncio.ensure_future(self.c.identity.extract_name(doc, self.c.doc_extract))
-        done, _ = await asyncio.wait({task}, timeout=self.s.doc_extract_hold_seconds)
-        if not done:
+        """Run the extraction. When a check will really run, the farmer is told first (it takes a few seconds)."""
+        if self.c.doc_extract.available and self.c.doc_extract.verify_doc_type(doc.id_document_type):
             await self._send_now(t, Reply(M.NAME_CHECK_HOLD))
-        return await task
+        return await self.c.identity.extract_name(doc, self.c.doc_extract)
 
     async def _send_now(self, t: Turn, reply: Reply) -> None:
         """A transient holding notice, sent immediately (the outbox only flushes after this turn's commit).
@@ -986,7 +989,8 @@ class ConversationService:
             return await self._identity_next(t, M.FACE_CHECK_GIVE_UP)
         if status == FaceCheckStatus.MISMATCH:
             d.selfie_doc, d.face_check_doc, d.face_choice_pending = None, str(selfie.id), True
-            reply = M.face_mismatch_reply()
+            tip = M.face_tip(selfie.face_warnings)  # e.g. eyes_closed -> "keep your eyes open"
+            reply = M.face_mismatch_reply(tip)
             reply.body = await self._localised(
                 t, reply.body, saved={"face_check": "the selfie does not seem to match the photo on the ID document"},
                 target=(
@@ -994,6 +998,7 @@ class ConversationService:
                     "give short tips for a new selfie (face the light, no cap or sunglasses, face fully in the frame, "
                     "look the way they do on the ID if possible) and ask them to choose one of the two options the "
                     "program shows as buttons. Never accuse the farmer, never give a score, and do not list the options"
+                    + (f". Also include this specific tip, in the farmer's language: {tip}" if tip else "")
                 ),
                 face_result=True,
             )
@@ -1005,9 +1010,11 @@ class ConversationService:
             d.id_front_doc, d.id_attempts = None, 0
             return await self._send_stage(t, prefix=M.FACE_ID_UNCLEAR)
         selfie.status = IdentityDocStatus.REJECTED.value  # NO_FACE_SELFIE / LIVENESS_FAILED: a new selfie, new challenge
+        await self.c.identity.release_hash(self.session, selfie)
         d.selfie_doc, d.face_check_doc = None, None
         identity_flow.issue_challenge(d, utcnow())
-        await self._send_stage(t, prefix=M.FACE_NEW_SELFIE)
+        tip = M.face_tip(selfie.face_warnings)  # the specific reason, when the photo check found one
+        await self._send_stage(t, prefix=f"{M.FACE_NEW_SELFIE} {tip}" if tip else M.FACE_NEW_SELFIE)
 
     async def _face_new_selfie(self, t: Turn) -> None:
         """[Take a new selfie]: the compared selfie is SUPERSEDED, then a selfie step with a new challenge."""

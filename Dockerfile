@@ -24,12 +24,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /srv
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# requirements.txt has "-e ." (the local package, for development); here it is installed below instead, not editable
+RUN grep -v '^-e' requirements.txt > requirements.docker.txt && pip install --no-cache-dir -r requirements.docker.txt
 
 # the ID verification module, imported by ezina-connect
 COPY pyproject.toml README.md ./
 COPY ezina_id_verify/ ./ezina_id_verify/
-RUN pip install --no-cache-dir . && rm -rf ezina_id_verify pyproject.toml
+RUN pip install --no-cache-dir . && rm -rf ezina_id_verify pyproject.toml requirements.docker.txt
 
 COPY ezina-connect/ ./ezina-connect/
 WORKDIR /srv/ezina-connect

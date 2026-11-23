@@ -382,3 +382,52 @@ def test_without_outlines_or_an_image_size_lines_have_no_straightened_position()
     for det in resp["TextDetections"]:
         del det["Geometry"]["Polygon"]
     assert all(l.dy is None for l in lines_from_response(resp, (1000, 800)))
+
+
+def test_passport_label_value_after_a_number_line_and_noisy_bilingual_label():
+    """Real passport photo: the passport number from the next column sits between 'Surname' and its value, and the
+    Given Name(s) label is read as 'film - / Given Name(s)'. The MRZ line is cut (no closing '<<'), so labels are used."""
+    from ezina_id_verify.config import load_documents
+    from ezina_id_verify.name.labels import extract_label_name
+    from ezina_id_verify.name.ocr import OcrLine
+    from ezina_id_verify.name.rules import StopWords
+
+    docs = load_documents()
+    _, spec = docs.lookup("passport")
+    texts = ["/Surname", "L1234567", "BEHERA", "film - / Given Name(s)", "CHITTA RANJAN", "Sex", "INDIAN"]
+    ocr = [OcrLine(text=t, confidence=99.0, top=i * 0.06, left=0.08, height=0.04) for i, t in enumerate(texts)]
+    got = extract_label_name(ocr, spec, docs.defaults, StopWords.build(docs.defaults, spec))
+    assert got is not None and got.full_name == "CHITTA RANJAN BEHERA"
+
+
+def _ocr_run(texts):
+    from ezina_id_verify import extract_name
+    from ezina_id_verify.name.ocr import OcrLine
+
+    class Fake:
+        async def read_lines(self, _data):
+            return [OcrLine(text=t, confidence=90.0, top=i * 0.04, left=0.08, height=0.03) for i, t in enumerate(texts)]
+
+    import asyncio, io
+    from PIL import Image
+    buf = io.BytesIO(); Image.new("RGB", (900, 600), "white").save(buf, "JPEG")
+    return asyncio.run(extract_name("passport", buf.getvalue(), ocr=Fake()))
+
+
+PRINTED = ["Surname", "BEHERA", "Given Name(s)", "CHITTA RANJAN", "Sex", "M", "Nationality", "INDIAN", "Place of Birth", "PURI"]
+
+
+def test_unclosed_lone_mrz_line_confirmed_by_the_printed_name_is_the_mrz_result():
+    r = _ocr_run(PRINTED + ["P<INDBEHERA<<CHITTA<RANJAN"])
+    assert r.found and r.method == "mrz" and r.full_name == "CHITTA RANJAN BEHERA"
+    assert "mrz_confirmed_by_label" in r.warnings
+
+
+def test_unclosed_lone_mrz_line_contradicted_by_the_printed_name_is_not_used():
+    r = _ocr_run(["Surname", "SHARMA", "Given Name(s)", "ANITA", "Sex", "F", "Nationality", "INDIAN", "P<INDBEHERA<<CHITTA<RANJAN"])
+    assert not r.full_name or r.full_name != "CHITTA RANJAN BEHERA"
+
+
+def test_cut_mrz_name_is_completed_from_the_printed_name_not_returned_short():
+    r = _ocr_run(PRINTED + ["P<INDBEHERA<<CHITTA<RANJ"])
+    assert r.full_name == "CHITTA RANJAN BEHERA"

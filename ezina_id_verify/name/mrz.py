@@ -68,16 +68,19 @@ _LONE_TD3 = re.compile(r"^P[A-Z<][A-Z<]{3}")
 def _lone_passport_line(lines: list[OcrLine]) -> Candidate | None:
     """A photo that shows only the first MRZ line (the second is cropped or unreadable).
 
-    Accepted only when the line is unmistakably a passport line 1 ("P<" + issuing state) and the name field is closed by
-    "<<" (the end-of-name filler), so a name cut off by the image edge is never returned. Flagged "mrz_incomplete".
+    Accepted when the line is unmistakably a passport line 1 ("P<" + issuing state) and holds a surname, the "<<"
+    separator and at least one given name. Flagged "mrz_incomplete". When the name field is not closed by the "<<"
+    filler (the line is cut by the image edge or the OCR stopped early) it is also flagged "mrz_name_unclosed": the
+    last given name may be cut short, which operations can see in the warnings.
     """
     for line in lines:
         norm = normalise_line(line.text)
-        if len(norm) < 20 or not _LONE_TD3.match(norm) or not norm.rstrip("K").endswith("<<"):
+        if len(norm) < 20 or not _LONE_TD3.match(norm):
             continue
         found = _candidate(norm[5:])
         if found is not None and found.given_names:
-            return Candidate("mrz", found.full_name, found.given_names, found.surname, warnings=("mrz_incomplete",))
+            warnings = ("mrz_incomplete",) if norm.rstrip("K").endswith("<<") else ("mrz_incomplete", "mrz_name_unclosed")
+            return Candidate("mrz", found.full_name, found.given_names, found.surname, warnings=warnings)
     return None
 
 

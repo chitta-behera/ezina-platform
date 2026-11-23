@@ -1,78 +1,85 @@
-"""ID name check: the extraction API client, the config, name matching and the farmer-facing flow.
+"""ID name check: the ezina_id_verify integration, the config, name matching and the farmer-facing flow.
 
-The extraction API is mocked with httpx.MockTransport. The name read from an ID is sensitive: these tests also prove it
-never reaches a log, a farmer message or a Claude prompt.
+ezina_id_verify.extract_name is mocked (AWS is never called). The name read from an ID is sensitive: these tests also
+prove it never reaches a log, a farmer message or a Claude prompt.
 """
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
+import uuid
 
-import httpx
 import pytest
+from sqlalchemy import select
+from ezina_id_verify import NameResult, RekognitionServiceError, UnsupportedDocType, UnsupportedFile
 
 from app.config import Settings
 from app.enums import Intent, NameCheckStatus
 from app.models import Conversation, IdentityDocument
-from app.services import name_match
+from app.services import doc_extract_service, name_match
 from app.services.claude_service import build_user_message
-from app.services.doc_extract_service import DocExtractError, DocExtractService, read_name
+from app.services.doc_extract_service import DocExtractService
 from app.workflows import identity_flow
-from tests.conftest import ADMIN_KEY, make_ai
+from app.workflows import messages as M
+from tests.conftest import ADMIN_KEY, make_ai, make_image
 
-API_URL = "https://extract.test/extract"
 ID_NAME = "Mokoena Thabo Zuma"  # a distinctive name "printed on the ID": must never leak
 
 
-# ------------------------------------------------------------------ the mocked extraction API
-def envelope(name: str) -> httpx.Response:
-    """The real API's shape: every field is {"value", "confidence", ...} under "fields"; other fields must be ignored."""
-    field = lambda v: {"value": v, "confidence": 0.98, "source": "ocr", "validation": "unchecked"}  # noqa: E731
-    return httpx.Response(200, json={"fields": {
-        "epic_number": field("UHN8691735"), "relation_name": field("Niranjan Behera"), "name": field(name),
-        "given_names": field(name), "gender": field("Male"), "age": field(42),
-    }})
+# ------------------------------------------------------------------ the mocked ezina_id_verify.extract_name
+def found(doc_type: str, name: str, **over) -> NameResult:
+    """A NameResult with only full_name set (given_names / surname stay None, as for most documents)."""
+    base = dict(doc_type=doc_type, found=True, full_name=name, method="label", confidence=0.85, warnings=[])
+    return NameResult(**{**base, **over})
+
+
+def not_found(doc_type: str) -> NameResult:
+    return NameResult(doc_type=doc_type, found=False, confidence=0.0, warnings=["name_not_found"])
 
 
 class ExtractMock:
-    def __init__(self):
-        self.requests: list[httpx.Request] = []
-        self.script: list = []  # httpx.Response | Exception | callable, popped first
-        self.default = envelope(ID_NAME)
-        self.delay = 0.0
+    """Stands in for ezina_id_verify.extract_name: records the calls, answers from a script, never touches AWS."""
 
-    async def handler(self, request: httpx.Request) -> httpx.Response:
-        self.requests.append(request)
+    def __init__(self):
+        self.requests: list[tuple[str, bytes]] = []  # (doc_type, id_image) per call
+        self.script: list = []  # NameResult | Exception | callable(doc_type) -> NameResult, popped first
+        self.default: NameResult | None = None  # None: the name below, with the doc_type that was asked for
+        self.delay = 0.0
+        self._name = ID_NAME
+
+    async def __call__(self, doc_type: str, image: bytes) -> NameResult:
+        self.requests.append((doc_type, image))
         if self.delay:
             await asyncio.sleep(self.delay)
-        item = self.script.pop(0) if self.script else self.default
+        item = self.script.pop(0) if self.script else (self.default or found(doc_type, self._name))
         if isinstance(item, Exception):
             raise item
-        return item
+        return item(doc_type) if callable(item) else item
 
     def name(self, value: str) -> None:
-        self.default = envelope(value)
-
-
-def make_service(**overrides) -> tuple[DocExtractService, ExtractMock]:
-    mock = ExtractMock()
-    base = dict(
-        _env_file=None, doc_extract_enabled=True, doc_extract_api_url=API_URL, doc_extract_retry_base_delay=0,
-        doc_extract_max_retries=2,
-    )
-    settings = Settings(**{**base, **overrides})
-    return DocExtractService(settings, client=httpx.AsyncClient(transport=httpx.MockTransport(mock.handler))), mock
+        self._name, self.default = value, None
 
 
 @pytest.fixture
-def api(env):
-    """The running app with the name check switched on and the API mocked."""
+def make_service(monkeypatch):
+    def factory(**overrides) -> tuple[DocExtractService, ExtractMock]:
+        mock = ExtractMock()
+        monkeypatch.setattr(doc_extract_service, "extract_name", mock)
+        return DocExtractService(Settings(**{"_env_file": None, "doc_extract_enabled": True, **overrides})), mock
+
+    return factory
+
+
+@pytest.fixture
+def api(env, monkeypatch):
+    """The running app with the name check switched on and extract_name mocked."""
     mock = ExtractMock()
+    monkeypatch.setattr(doc_extract_service, "extract_name", mock)
     s = env.c.settings
-    s.doc_extract_enabled, s.doc_extract_api_url = True, API_URL
-    s.doc_extract_retry_base_delay, s.doc_extract_hold_seconds = 0, 60
-    env.c.doc_extract = DocExtractService(s, client=httpx.AsyncClient(transport=httpx.MockTransport(mock.handler)))
+    s.doc_extract_enabled = True
+    env.c.doc_extract = DocExtractService(s)
     return mock
 
 
@@ -97,105 +104,100 @@ async def front(env) -> IdentityDocument:
     return rows[-1]
 
 
-# ------------------------------------------------------------------ 1. the client
-async def test_request_is_multipart_with_doc_type_and_file_and_bearer_key():
-    svc, mock = make_service(doc_extract_api_key="sekret-key")
-    name = await svc.extract_name(doc_type="passport", name_fields=["fields.name.value"], data=b"IMGBYTES", mime="image/png")
-    assert name == ID_NAME
-    (req,) = mock.requests
-    assert req.method == "POST" and str(req.url) == API_URL
-    assert req.headers["content-type"].startswith("multipart/form-data")
-    body = req.content
-    assert b'name="doc_type"' in body and b"passport" in body
-    assert b'name="file"; filename="id.png"' in body and b"Content-Type: image/png" in body and b"IMGBYTES" in body
-    assert req.headers["authorization"] == "Bearer sekret-key"
-
-
-async def test_custom_key_header_gets_the_bare_key_and_no_key_sends_no_header():
-    svc, mock = make_service(doc_extract_api_key="k1", doc_extract_api_key_header="X-Api-Key")
-    await svc.extract_name(doc_type="pan", name_fields=["given_names"], data=b"x", mime="image/jpeg")
-    assert mock.requests[0].headers["x-api-key"] == "k1" and "authorization" not in mock.requests[0].headers
-    svc2, mock2 = make_service()
-    await svc2.extract_name(doc_type="pan", name_fields=["given_names"], data=b"x", mime="application/pdf")
-    assert "authorization" not in mock2.requests[0].headers and b'filename="id.pdf"' in mock2.requests[0].content
-
-
-@pytest.mark.parametrize("payload,fields,expected", [
-    ({"given_names": "Thabo", "surname": "Mokoena"}, ["given_names", "surname"], "Thabo Mokoena"),  # passport
-    ({"given_names": "Thabo", "surname": ""}, ["given_names", "surname"], "Thabo"),  # only given names
-    ({"given_names": "Thabo"}, ["given_names", "surname"], "Thabo"),  # surname missing
-    ({"name": "RAJESH KUMAR", "pan": "ABCDE1234F"}, ["name"], "RAJESH KUMAR"),  # PAN: id number is ignored
-    ({"name": "Asha Devi", "epic_no": "XYZ123"}, ["name"], "Asha Devi"),  # voter id
-    ({"data": {"name": "Wrapped Name"}}, ["data.name"], "Wrapped Name"),  # nested path
-    ({"fields": {"name": {"value": "Chittaranjan Behera", "confidence": 0.98}, "relation_name": {"value": "Niranjan Behera"},
-                 "epic_number": {"value": "UHN8691735"}, "age": {"value": 42}}}, ["fields.name.value"], "Chittaranjan Behera"),
-    ({"fields": {"given_names": {"value": "Thabo"}, "surname": {"value": "Mokoena"}}},
-     ["fields.given_names.value", "fields.surname.value"], "Thabo Mokoena"),
-    ({"fields": {"name": {"value": None, "confidence": 0.1}}}, ["fields.name.value"], None),  # nothing read
-    ({"data": {"a": "A", "b": {"c": "C"}}}, ["data.a", "data.b.c"], "A C"),
-    ({"data": None}, ["data.name"], None),
-    ({"other": "x"}, ["name"], None),  # none of the fields present
-    ({"name": "   "}, ["name"], None),  # all empty
-    ({"name": 12345}, ["name"], None),  # not text
-    (["not", "an", "object"], ["name"], None),
+# ------------------------------------------------------------------ 1. the service calls ezina_id_verify
+@pytest.mark.parametrize("code,doc_type", [
+    ("PASSPORT", "passport"), ("AADHAAR_MASKED", "aadhaar"), ("PAN", "pan"), ("VOTER_ID", "voter_id"),
+    ("DRIVING_LICENCE", "driving_licence"), ("OMANG", "botswana_omang"),
 ])
-def test_read_name_joins_the_configured_fields_in_order(payload, fields, expected):
-    assert read_name(payload, fields) == expected
-
-
-async def test_5xx_is_retried_then_succeeds():
+async def test_each_id_type_passes_its_own_doc_type_and_only_the_image_bytes(make_service, code, doc_type):
     svc, mock = make_service()
-    mock.script = [httpx.Response(503), httpx.Response(502), httpx.Response(200, json={"name": "Asha"})]
-    assert await svc.extract_name(doc_type="pan", name_fields=["name"], data=b"x", mime="image/jpeg") == "Asha"
-    assert len(mock.requests) == 3
+    out = await svc.extract_name(id_document_type=code, data=b"IMGBYTES")
+    assert mock.requests == [(doc_type, b"IMGBYTES")]  # raw bytes only: no content type
+    assert out.status == NameCheckStatus.PENDING and out.name == ID_NAME
+    assert (out.method, out.confidence, out.unsupported_file) == ("label", 0.85, False)
 
 
-async def test_timeouts_and_connection_errors_are_retried_then_raise():
+@pytest.mark.parametrize("code", ["KCC", None, "NOPE"])
+async def test_an_id_type_without_a_verify_doc_type_is_skipped_without_calling_the_package(make_service, code):
     svc, mock = make_service()
-    mock.script = [httpx.ReadTimeout("slow"), httpx.ConnectError("down"), httpx.ConnectTimeout("slow")]
-    with pytest.raises(DocExtractError):
-        await svc.extract_name(doc_type="pan", name_fields=["name"], data=b"x", mime="image/jpeg")
-    assert len(mock.requests) == 3  # 1 try + DOC_EXTRACT_MAX_RETRIES
+    out = await svc.extract_name(id_document_type=code, data=b"IMG")
+    assert out.status == NameCheckStatus.SKIPPED and out.name is None and mock.requests == []
+    assert svc.verify_doc_type(code) is None
 
 
-async def test_persistent_5xx_raises_after_the_retries():
-    svc, mock = make_service(doc_extract_max_retries=1)
-    mock.default = httpx.Response(500)
-    with pytest.raises(DocExtractError) as e:
-        await svc.extract_name(doc_type="pan", name_fields=["name"], data=b"x", mime="image/jpeg")
-    assert e.value.reason == "http_500" and len(mock.requests) == 2
+async def test_switched_off_is_skipped_without_calling_the_package(make_service):
+    svc, mock = make_service(doc_extract_enabled=False)
+    assert not svc.available
+    assert (await svc.extract_name(id_document_type="PASSPORT", data=b"IMG")).status == NameCheckStatus.SKIPPED
+    assert mock.requests == []
 
 
-@pytest.mark.parametrize("response", [httpx.Response(400), httpx.Response(401), httpx.Response(422),
-                                      httpx.Response(200, content=b"<html>not json</html>")])
-async def test_4xx_and_unparseable_bodies_are_not_retried(response):
+async def test_a_result_with_only_full_name_is_enough(make_service):
     svc, mock = make_service()
-    mock.script = [response]
-    with pytest.raises(DocExtractError):
-        await svc.extract_name(doc_type="pan", name_fields=["name"], data=b"x", mime="image/jpeg")
-    assert len(mock.requests) == 1
+    mock.default = found("pan", "  rajesh   KUMAR ", given_names=None, surname=None)
+    out = await svc.extract_name(id_document_type="PAN", data=b"IMG")
+    assert out.status == NameCheckStatus.PENDING and out.name == "rajesh KUMAR"  # whitespace normalised, nothing else
 
 
-async def test_client_logs_status_and_timing_but_never_the_name_or_id_fields(caplog):
+async def test_found_false_is_not_found_and_an_empty_name_is_too(make_service):
     svc, mock = make_service()
+    mock.default = not_found("passport")
+    out = await svc.extract_name(id_document_type="PASSPORT", data=b"IMG")
+    assert out.status == NameCheckStatus.NOT_FOUND and out.name is None and not out.unsupported_file
+    mock.default = found("passport", "   ")
+    assert (await svc.extract_name(id_document_type="PASSPORT", data=b"IMG")).status == NameCheckStatus.NOT_FOUND
+
+
+@pytest.mark.parametrize("failure,status,unsupported,reason", [
+    (UnsupportedDocType("nope"), NameCheckStatus.SKIPPED, False, "unsupported_doc_type"),
+    (UnsupportedFile("not a JPEG/PNG"), NameCheckStatus.NOT_FOUND, True, "unsupported_file"),
+    (RekognitionServiceError("AWS failed", "ThrottlingException"), NameCheckStatus.ERROR, False, "ThrottlingException"),
+    (RuntimeError("anything else"), NameCheckStatus.ERROR, False, "RuntimeError"),
+])
+async def test_package_exceptions_become_statuses_and_never_reach_the_caller(make_service, failure, status, unsupported, reason):
+    svc, mock = make_service()
+    mock.script = [failure, failure, failure]
+    out = await svc.extract_name(id_document_type="PASSPORT", data=b"IMG")
+    assert (out.status, out.unsupported_file, out.reason, out.name) == (status, unsupported, reason, None)
+    assert len(mock.requests) == 1  # ezina_id_verify already retries AWS errors: nothing is retried here
+
+
+async def test_a_doc_type_that_differs_from_the_one_passed_is_logged_without_personal_data(make_service, caplog):
+    svc, mock = make_service()
+    mock.default = found("generic_id", ID_NAME)
+    with caplog.at_level(logging.WARNING, logger="ezina"):
+        out = await svc.extract_name(id_document_type="PASSPORT", data=b"IMG")
+    assert out.status == NameCheckStatus.PENDING  # still usable
+    assert "differs" in caplog.text and ID_NAME not in app_log_text(caplog)
+
+
+async def test_the_service_logs_status_method_confidence_and_timing_but_never_the_name(make_service, caplog):
+    svc, mock = make_service()
+    mock.default = found("passport", ID_NAME, given_names="Thabo Zuma", surname="Mokoena", warnings=["x"])
     with caplog.at_level(logging.DEBUG, logger="ezina"):
-        await svc.extract_name(doc_type="passport", name_fields=["given_names"], data=b"x", mime="image/jpeg")
-    assert "doc extract call" in caplog.text
-    for secret in (ID_NAME, "UHN8691735", "Niranjan Behera"):
-        assert secret not in app_log_text(caplog)
+        await svc.extract_name(id_document_type="PASSPORT", data=b"IMG")
+    text = app_log_text(caplog)
+    assert "name check call" in text and "PENDING" in text and "label" in text and "0.85" in text
+    for secret in (ID_NAME, "Thabo", "Mokoena", "Zuma"):
+        assert secret not in text
 
 
 # ------------------------------------------------------------------ 2. per-document configuration
 def test_configured_id_types_and_those_without_configuration():
-    assert identity_flow.extraction_for("PASSPORT").doc_type == "passport"
-    assert identity_flow.extraction_for("PASSPORT").name_fields == ("fields.given_names.value", "fields.surname.value")
-    assert identity_flow.extraction_for("PAN").name_fields == ("fields.name.value",)
-    assert identity_flow.extraction_for("VOTER_ID").name_fields == ("fields.name.value",)
-    assert identity_flow.extraction_for("VOTER_ID").doc_type == "voter_id"
-    assert identity_flow.extraction_for("AADHAAR_MASKED").doc_type == "aadhaar"
-    assert identity_flow.extraction_for("AADHAAR_MASKED").name_fields == ("fields.name.value",)
-    for code in ("DRIVING_LICENCE", "OMANG", "KCC", None, "NOPE"):
+    expected = {"PASSPORT": "passport", "AADHAAR_MASKED": "aadhaar", "PAN": "pan", "VOTER_ID": "voter_id",
+                "DRIVING_LICENCE": "driving_licence", "OMANG": "botswana_omang"}
+    for code, doc_type in expected.items():
+        assert identity_flow.extraction_for(code).verify_doc_type == doc_type
+    for code in ("KCC", None, "NOPE"):
         assert identity_flow.extraction_for(code) is None
+
+
+def test_every_shipped_verify_doc_type_is_a_document_type_ezina_id_verify_knows():
+    from ezina_id_verify.config import load_documents
+
+    known = set(load_documents().doc_types)
+    for code in ("PASSPORT", "AADHAAR_MASKED", "PAN", "VOTER_ID", "DRIVING_LICENCE", "OMANG"):
+        assert identity_flow.extraction_for(code).verify_doc_type in known
 
 
 GOOD = """
@@ -205,7 +207,7 @@ countries:
       - {code: PASSPORT, names: {en: "Passport"}}
       - {code: OMANG, names: {en: "Omang"}}
 extraction:
-  PASSPORT: {doc_type: passport, name_fields: [given_names, surname]}
+  PASSPORT: {verify_doc_type: passport}
 """
 
 
@@ -220,20 +222,19 @@ def config_file(tmp_path, monkeypatch):
 
 
 def test_new_document_type_needs_only_a_config_change(config_file):
-    config_file.write_text(GOOD.replace("extraction:", "extraction:\n  OMANG: {doc_type: omang, name_fields: [data.full_name]}"))
+    config_file.write_text(GOOD.replace("extraction:", "extraction:\n  OMANG: {verify_doc_type: kenya_id}"))
     identity_flow.validate_config()
-    spec = identity_flow.extraction_for("OMANG")
-    assert (spec.doc_type, spec.name_fields) == ("omang", ("data.full_name",))
+    assert identity_flow.extraction_for("OMANG").verify_doc_type == "kenya_id"
 
 
 @pytest.mark.parametrize("bad,message", [
     ("just: a mapping", "'countries'"),
-    (GOOD.replace("doc_type: passport, ", ""), "extraction.PASSPORT: 'doc_type'"),
-    (GOOD.replace("[given_names, surname]", "[]"), "extraction.PASSPORT: 'name_fields'"),
-    (GOOD.replace("[given_names, surname]", "given_names"), "extraction.PASSPORT: 'name_fields'"),
-    (GOOD.replace("[given_names, surname]", "[given_names, '']"), "extraction.PASSPORT: 'name_fields'"),
-    (GOOD.replace("PASSPORT: {doc", "GHOST: {doc"), "'GHOST' is not an ID type"),
-    (GOOD.replace("extraction:\n  PASSPORT: {doc_type: passport, name_fields: [given_names, surname]}", "extraction: [1, 2]"), "'extraction' must be a mapping"),
+    (GOOD.replace("verify_doc_type: passport", "doc_type: passport, name_fields: [name]"), "extraction.PASSPORT: 'verify_doc_type'"),
+    (GOOD.replace("{verify_doc_type: passport}", "{verify_doc_type: ''}"), "extraction.PASSPORT: 'verify_doc_type'"),
+    (GOOD.replace("{verify_doc_type: passport}", "{verify_doc_type: [passport]}"), "extraction.PASSPORT: 'verify_doc_type'"),
+    (GOOD.replace("{verify_doc_type: passport}", "passport"), "extraction.PASSPORT: 'verify_doc_type'"),
+    (GOOD.replace("PASSPORT: {verify", "GHOST: {verify"), "'GHOST' is not an ID type"),
+    (GOOD.replace("extraction:\n  PASSPORT: {verify_doc_type: passport}", "extraction: [1, 2]"), "'extraction' must be a mapping"),
     (GOOD.replace('{en: "Passport"}', "{}"), "needs an 'en' entry"),
     ("countries: [unclosed", "not valid YAML"),
 ])
@@ -249,149 +250,56 @@ def test_shipped_config_is_valid():
     identity_flow.validate_config()
 
 
+_STD_RECORD_FIELDS = set(logging.makeLogRecord({}).__dict__) | {"message", "asctime"}  # timing floats are noise
+
+
+def app_log_text(caplog) -> str:
+    """Everything the app itself logged (message and structured fields); SQL driver debug output is not ours."""
+    return " ".join(
+        f"{r.getMessage()} {sorted((k, v) for k, v in r.__dict__.items() if k not in _STD_RECORD_FIELDS)}"
+        for r in caplog.records if r.name.startswith("ezina")
+    )
+
+
 # ------------------------------------------------------------------ 3. name matching
-@pytest.mark.parametrize("given,on_id", [
-    ("John Mokoena", "John Mokoena"),
-    ("John Mokoena", "MOKOENA JOHN"),  # word order
-    ("John Mokoena", "John Peter Mokoena"),  # middle name
-    ("J. Mokoena", "John Mokoena"),  # initial
-    ("John M", "John Mokoena"),  # initial as surname
-    ("John Mokoena", "J P Mokoena"),  # initials on the ID side
-    ("Mr John Mokoena", "John Mokoena"),  # titles
-    ("Shri Rajesh Kumar", "Rajesh Kumar"),
-    ("Smt. Asha Devi", "ASHA DEVI"),
-    ("José Müller", "Jose Muller"),  # accents
-    ("Amélie O'Neil", "Amelie ONeil"),  # punctuation
-    ("John Mokoena", "Jon Mokoena"),  # minor typo
-    ("Thabo Mokoena", "Thabo Mokoenaa"),
+@pytest.mark.parametrize("failure", [
+    RekognitionServiceError("AWS failed", "ThrottlingException"), RekognitionServiceError("denied", "AccessDeniedException"),
+    RuntimeError("anything else"),
 ])
-def test_names_that_should_match(given, on_id):
-    status, s = name_match.compare(given, on_id)
-    assert status == NameCheckStatus.MATCHED, (given, on_id, s)
-
-
-@pytest.mark.parametrize("given,on_id", [
-    ("John Mokoena", "Peter Dlamini"),
-    ("John Mokoena", "John Dlamini"),  # same first name only
-    ("John", "John Mokoena"),  # a lone given name must not match any longer name
-    ("A. Mokoena", "John Mokoena"),  # wrong initial
-])
-def test_names_that_should_not_match(given, on_id):
-    status, _ = name_match.compare(given, on_id)
-    assert status in (NameCheckStatus.PARTIAL, NameCheckStatus.MISMATCH)
-
-
-def test_thresholds_and_not_found():
-    assert name_match.compare("John", "Jonn", threshold=99, partial=75)[0] == NameCheckStatus.PARTIAL
-    assert name_match.compare("John", "Jonn", threshold=99, partial=95)[0] == NameCheckStatus.MISMATCH
-    assert name_match.compare("John Mokoena", "")[0] == NameCheckStatus.NOT_FOUND
-    assert name_match.compare("John Mokoena", None) == (NameCheckStatus.NOT_FOUND, 0.0)
-    assert name_match.compare("", "John Mokoena")[0] == NameCheckStatus.MISMATCH
-
-
-def test_normalise():
-    assert name_match.normalise("  Dr.  JOSÉ   o'Neil-Smith ") == "jose o neil smith"
-
-
-# ------------------------------------------------------------------ 4. flow: no API call
-async def test_id_type_without_configuration_skips_the_check(env, api):
-    await env.run_registration_until("id_front")  # Omang: not configured
-    assert api.requests == []
-    d = await front(env)
-    assert d.name_check_status == "SKIPPED" and d.extracted_name is None
-    assert await env.stage() == "COLLECT_SELFIE" and "Got it" in env.graph.texts()[-1]
-
-
-async def test_disabled_makes_no_api_call(env, api):
-    env.c.settings.doc_extract_enabled = False
-    await to_passport(env)
-    assert api.requests == []
-    assert (await front(env)).name_check_status == "SKIPPED" and await env.stage() == "COLLECT_SELFIE"
-
-
-async def test_selfie_and_id_back_never_call_the_api(env, api):
-    api.name("John")
-    await to_passport(env)
-    assert len(api.requests) == 1
-    await env.identity_image()  # the selfie
-    assert len(api.requests) == 1
-
-
-# ------------------------------------------------------------------ 5. flow: results
-async def test_matched_continues_and_stores_the_result(env, api):
-    api.name("John")
-    await to_passport(env)
-    (req,) = api.requests
-    assert b'name="doc_type"' in req.content and b"passport" in req.content and b'filename="id.jpg"' in req.content
-    d = await front(env)
-    assert d.name_check_status == "MATCHED" and float(d.name_match_score) == 100.0 and d.extracted_name == "John"
-    assert d.name_checked_at is not None and d.name_check_attempts == 0
-    assert await env.stage() == "COLLECT_SELFIE" and "ID has been received" in env.graph.texts()[-1]
-    assert (await draft(env))["id_front_doc"] == str(d.id)
-
-
-async def test_mismatch_offers_the_two_buttons_and_does_not_repeat_the_name_on_the_id(env, api):
-    await to_passport(env)  # the ID says "Mokoena Thabo Zuma", the farmer said "John"
-    msg = env.graph.texts()[-1]
-    assert msg == "The name on your ID doesn't match the name you gave us (John). Please choose an option:"
-    assert env.graph.last_buttons() == ["name_change", "id_reupload"]
-    for fragment in ("Mokoena", "Thabo", "Zuma", "UHN8691735"):
-        assert fragment not in " ".join(env.graph.texts())
-    d = await front(env)
-    assert d.name_check_status == "MISMATCH" and d.name_check_attempts == 1 and d.status == "ACCEPTED"
-    dr = await draft(env)
-    assert dr["name_choice_pending"] and dr["id_front_doc"] is None and await env.stage() == "COLLECT_ID_DOCUMENT"
-
-
-async def test_partial_is_treated_like_a_mismatch(env, api):
-    env.c.settings.name_match_threshold = 99
-    api.name("Jonn")
-    await to_passport(env)
-    assert (await front(env)).name_check_status == "PARTIAL"
-    assert env.graph.last_buttons() == ["name_change", "id_reupload"]
-
-
-async def test_not_found_asks_for_a_clearer_photo_and_counts_as_an_attempt(env, api):
-    api.default = httpx.Response(200, json={"other": "nothing useful"})
-    await to_passport(env)
-    assert "clearer photo" in env.graph.texts()[-1]
-    d = await front(env)
-    assert d.name_check_status == "NOT_FOUND" and d.status == "REJECTED"
-    assert (await draft(env))["id_attempts"] == 1 and await env.stage() == "COLLECT_ID_DOCUMENT"
-    await env.identity_image()
-    await env.identity_image()  # third failed attempt (IDENTITY_MAX_ATTEMPTS)
-    dr = await draft(env)
-    assert dr["id_needs_help"] and await env.stage() == "COLLECT_SELFIE"
-
-
-@pytest.mark.parametrize("failure,calls", [
-    (httpx.Response(500), 3), (httpx.ReadTimeout("slow"), 3), (httpx.Response(401), 1),
-])
-async def test_api_failure_does_not_block_the_farmer(env, api, failure, calls):
+async def test_failure_does_not_block_the_farmer(env, api, failure):
     api.script = [failure] * 3
     await to_passport(env)
-    assert len(api.requests) == calls
+    assert len(api.requests) == 1  # nothing is retried here: ezina_id_verify already retries AWS errors
     d = await front(env)
     assert d.name_check_status == "ERROR" and d.extracted_name is None and d.name_checked_at is not None
+    assert d.name_extract_method is None and d.name_extract_confidence is None
     assert await env.stage() == "COLLECT_SELFIE"
     assert "doesn't match" not in " ".join(env.graph.texts()) and "Got it" in env.graph.texts()[-1]
     assert (await draft(env))["id_front_doc"] == str(d.id)
 
 
-async def test_holding_message_when_the_check_is_slow(env, api):
-    env.c.settings.doc_extract_hold_seconds = 0.05
-    api.delay, api.default = 0.3, envelope("John")
+HOLD = "Thank you! Checking your ID, this takes a few seconds…"
+
+
+async def test_the_farmer_is_told_the_id_is_being_checked_before_the_result(env, api):
+    api.name("John")
     await to_passport(env)
     texts = env.graph.texts()
-    assert "Checking your ID, please wait a moment…" in texts
-    assert texts.index("Checking your ID, please wait a moment…") < len(texts) - 1  # before the real reply
+    assert texts.count(HOLD) == 1 and texts.index(HOLD) < len(texts) - 1  # before the real reply
     assert (await front(env)).name_check_status == "MATCHED"
 
 
-async def test_no_holding_message_when_the_check_is_quick(env, api):
-    api.name("John")
+async def test_no_checking_message_when_no_check_runs(env, api, config_file):
+    config_file.write_text(GOOD)  # OMANG has no verify_doc_type: nothing is checked
+    identity_flow.validate_config()
+    await env.run_registration_until("id_front")
+    assert api.requests == [] and HOLD not in env.graph.texts()
+
+
+async def test_no_checking_message_when_the_check_is_off(env, api):
+    env.c.settings.doc_extract_enabled = False
     await to_passport(env)
-    assert not any("Checking your ID" in t for t in env.graph.texts())
+    assert api.requests == [] and HOLD not in env.graph.texts()
 
 
 # ------------------------------------------------------------------ 6. flow: the farmer's choices
@@ -432,7 +340,7 @@ async def test_upload_another_id_supersedes_the_old_one_and_checks_the_new_one(e
     first = await front(env)
     await env.button("id_reupload", "Upload another ID")
     assert env.graph.last()["interactive"]["action"].get("sections")  # back to the ID type list
-    assert (await docs(env, IdentityDocument.id == first.id))[0].status == "SUPERSEDED"
+    assert await docs(env, IdentityDocument.id == first.id) == []  # the old ID is deleted, not kept
     api.name("John")  # the next ID carries the farmer's name
     await env.button("idtype_PASSPORT", "Passport")
     await env.identity_image()
@@ -456,7 +364,7 @@ async def test_free_text_asking_for_a_different_id_is_treated_as_upload_another(
     first = await front(env)
     env.claude.push(make_ai(Intent.SUBMIT_IDENTITY_DOCUMENTS))
     await env.text("I will send my other document")
-    assert (await docs(env, IdentityDocument.id == first.id))[0].status == "SUPERSEDED"
+    assert await docs(env, IdentityDocument.id == first.id) == []
     assert not (await draft(env))["name_choice_pending"]
 
 
@@ -531,17 +439,6 @@ async def test_attempt_limit_is_configurable(env, api):
 
 
 # ------------------------------------------------------------------ 8. privacy and Claude
-_STD_RECORD_FIELDS = set(logging.makeLogRecord({}).__dict__) | {"message", "asctime"}  # timing floats are noise
-
-
-def app_log_text(caplog) -> str:
-    """Everything the app itself logged (message and structured fields); SQL driver debug output is not ours."""
-    return " ".join(
-        f"{r.getMessage()} {sorted((k, v) for k, v in r.__dict__.items() if k not in _STD_RECORD_FIELDS)}"
-        for r in caplog.records if r.name.startswith("ezina")
-    )
-
-
 async def test_extracted_name_never_reaches_logs_claude_or_farmer_messages(env, api, caplog):
     with caplog.at_level(logging.DEBUG, logger="ezina"):
         await to_passport(env)
@@ -607,6 +504,167 @@ async def test_the_check_never_verifies_a_farmer(env, api):
     assert f.verification_status == "PENDING" and f.verification_status != "VERIFIED"
 
 
+# ------------------------------------------------------------------ 8b. the Rekognition integration in the flow
+@pytest.mark.parametrize("button,label,doc_type", [
+    ("idtype_PASSPORT", "Passport", "passport"), ("idtype_OMANG", "Omang", "botswana_omang"),
+    ("idtype_DRIVING_LICENCE", "Driving licence", "driving_licence"),
+])
+async def test_the_selected_id_type_decides_the_doc_type_passed_to_the_package(env, api, button, label, doc_type):
+    api.name("John")
+    await env.run_registration_until("location")
+    await env.button(button, label)
+    await env.identity_image()
+    (row,) = [d for d in await docs(env) if d.kind == "ID_FRONT"]
+    stored = await env.c.identity.storage.get(row.storage_key)
+    assert api.requests == [(doc_type, stored)]  # the stored ID front's bytes, nothing else
+    assert row.name_check_status == "MATCHED"
+
+
+async def test_unsupported_file_asks_for_a_clear_jpeg_png_photo_and_counts_as_an_attempt(env, api):
+    api.script = [UnsupportedFile("not a JPEG/PNG")]
+    await to_passport(env)
+    assert env.graph.texts()[-1].startswith(M.ID_SEND_PHOTO)
+    assert [d for d in await docs(env) if d.kind == "ID_FRONT"] == []  # the unusable photo and its row are removed
+    assert (await draft(env))["id_attempts"] == 1 and await env.stage() == "COLLECT_ID_DOCUMENT"
+    api.name("John")
+    await env.identity_image()  # a good photo now
+    assert await env.stage() == "COLLECT_SELFIE" and (await front(env)).name_check_status == "MATCHED"
+
+
+async def test_unsupported_doc_type_skips_the_check_and_the_flow_continues(env, api):
+    api.script = [UnsupportedDocType("not configured in ezina_id_verify")]
+    await to_passport(env)
+    d = await front(env)
+    assert d.name_check_status == "SKIPPED" and d.extracted_name is None and d.name_checked_at is None
+    assert await env.stage() == "COLLECT_SELFIE" and "Got it" in env.graph.texts()[-1]
+    assert (await draft(env))["id_front_doc"] == str(d.id)
+
+
+async def test_a_not_found_result_still_asks_for_a_clearer_photo_not_a_new_file_type(env, api):
+    api.default = not_found("passport")
+    await to_passport(env)
+    assert "clearer photo" in env.graph.texts()[-1] and M.ID_SEND_PHOTO not in env.graph.texts()[-1]
+
+
+@pytest.mark.parametrize("mime", ["application/pdf", "image/webp", "image/gif"])
+async def test_a_file_that_is_not_jpeg_or_png_at_the_id_step_asks_for_a_photo(env, api, mime):
+    await env.run_registration_until("id_type")
+    await env.document(mime=mime, data=b"%PDF-1.4 x" if mime == "application/pdf" else None)
+    assert env.graph.texts()[-1].startswith(M.ID_SEND_PHOTO)
+    assert [d for d in await docs(env)] == [] and api.requests == []  # nothing stored, nothing sent to the package
+    assert (await draft(env))["id_attempts"] == 1 and await env.stage() == "COLLECT_ID_DOCUMENT"
+
+
+@pytest.mark.parametrize("mime", ["image/jpeg", "image/png"])
+async def test_a_jpeg_or_png_sent_as_a_document_is_accepted_at_the_id_step(env, api, mime):
+    api.name("John")
+    await env.run_registration_until("id_type")
+    await env.document(mime=mime)
+    assert await env.stage() == "COLLECT_SELFIE" and (await front(env)).mime_type == mime
+
+
+async def test_an_id_photo_message_is_unaffected_by_the_pdf_rule(env, api):
+    api.name("John")
+    await to_passport(env)
+    assert (await front(env)).name_check_status == "MATCHED"
+
+
+async def test_admin_detail_shows_how_the_name_was_read(env, api):
+    await to_passport(env)
+    f = await env.farmer()
+    r = await env.client.get(f"/api/admin/farmers/{f.id}", headers={"X-API-Key": ADMIN_KEY})
+    (ident,) = [d for d in r.json()["identity_documents"] if d["kind"] == "ID_FRONT"]
+    assert ident["name_extract_method"] == "label" and ident["name_extract_confidence"] == 0.85
+
+
+async def test_the_same_photo_can_be_sent_again_after_its_name_could_not_be_read(env, api):
+    photo = make_image()  # identical bytes both times (the helper makes a new random image otherwise)
+    api.default = not_found("passport")
+    await to_passport(env, send_photo=False)
+    await env.identity_image(data=photo)
+    assert "clearer photo" in env.graph.texts()[-1]
+    api.default = None
+    api.name("John")  # e.g. the photo is read this time
+    await env.identity_image(data=photo)
+    assert "already been used" not in " ".join(env.graph.texts())
+    assert await env.stage() == "COLLECT_SELFIE" and (await front(env)).name_check_status == "MATCHED"
+    (row,) = [d for d in await docs(env) if d.kind == "ID_FRONT"]  # the unreadable one is gone, not kept beside it
+    assert row.status == "ACCEPTED"
+
+
+async def test_a_photo_whose_name_was_not_found_is_deleted_from_storage_and_the_database(env, api):
+    api.default = not_found("passport")
+    await to_passport(env, send_photo=False)
+    await env.identity_image(data=make_image())
+    assert [d for d in await docs(env) if d.kind == "ID_FRONT"] == []
+
+
+async def test_a_leftover_rejected_row_of_the_same_photo_does_not_block_a_resend(env, api):
+    """Rows rejected before unreadable IDs were deleted still hold their hash: the farmer's own one is cleared."""
+    photo = make_image()
+    api.name("John")
+    await to_passport(env, send_photo=False)
+    farmer = await env.farmer()
+    async with env.c.db.sessionmaker() as s, s.begin():
+        s.add(IdentityDocument(
+            farmer_id=farmer.id, country="BW", kind="ID_FRONT", id_document_type="PASSPORT", wa_media_id="OLDMEDIA",
+            storage_key="identity/old/id_front/old.jpg", mime_type="image/jpeg", size_bytes=len(photo),
+            sha256=hashlib.sha256(photo).hexdigest(), quality_result={}, attempt=1, status="REJECTED",
+            name_check_status="NOT_FOUND"))
+    await env.identity_image(data=photo)
+    assert "already been used" not in " ".join(env.graph.texts())
+    (row,) = [d for d in await docs(env) if d.kind == "ID_FRONT"]
+    assert row.status == "ACCEPTED" and row.wa_media_id != "OLDMEDIA" and await env.stage() == "COLLECT_SELFIE"
+
+
+async def test_a_photo_from_another_farmer_or_an_accepted_one_is_still_refused_as_reused(env, api):
+    photo = make_image()
+    api.name("John")
+    await to_passport(env, send_photo=False)
+    await env.identity_image(data=photo)  # accepted
+    assert await env.stage() == "COLLECT_SELFIE"
+    await env.identity_image(data=photo)  # the same bytes as the accepted ID, now as the selfie
+    assert "already been used" in env.graph.texts()[-1]
+
+
+async def test_a_name_match_is_not_announced_to_the_farmer(env, api):
+    api.name("John")
+    await to_passport(env)
+    receipt = env.graph.texts()[-1].split("\n\n")[0]
+    assert receipt == "Thank you, your ID has been received ✅."  # the plain receipt, nothing about the name or a review
+
+
+def _old_id_row(farmer_id, photo: bytes, status: str, media: str = "OLDMEDIA") -> IdentityDocument:
+    return IdentityDocument(
+        farmer_id=farmer_id, country="BW", kind="ID_FRONT", id_document_type="PASSPORT", wa_media_id=media,
+        storage_key="identity/old/id_front/old.jpg", mime_type="image/jpeg", size_bytes=len(photo),
+        sha256=hashlib.sha256(photo).hexdigest(), quality_result={}, attempt=1, status=status)
+
+
+async def test_an_id_photo_the_farmer_replaced_can_be_used_again(env, api):
+    photo = make_image()
+    api.name("John")
+    await to_passport(env, send_photo=False)
+    farmer = await env.farmer()
+    async with env.c.db.sessionmaker() as s, s.begin():
+        s.add(_old_id_row(farmer.id, photo, "SUPERSEDED"))  # e.g. replaced after [Upload another ID]
+    await env.identity_image(data=photo)
+    assert "already been used" not in " ".join(env.graph.texts())
+    rows = [d for d in await docs(env) if d.kind == "ID_FRONT"]
+    assert [d.status for d in rows] == ["ACCEPTED"] and rows[0].wa_media_id != "OLDMEDIA"  # the old row is gone
+    assert await env.stage() == "COLLECT_SELFIE"
+
+
+async def test_another_farmers_id_photo_is_still_refused(env, api):
+    photo = make_image()
+    api.name("John")
+    await to_passport(env, send_photo=False)
+    async with env.c.db.sessionmaker() as s, s.begin():
+        s.add(_old_id_row(uuid.uuid4(), photo, "SUPERSEDED", "OTHERMEDIA"))  # another farmer's
+    await env.identity_image(data=photo)
+    assert "already been used" in env.graph.texts()[-1] and await env.stage() == "COLLECT_ID_DOCUMENT"
+
+
 # ------------------------------------------------------------------ 9. migration 0004
 def _alembic(db, *args):
     import os
@@ -654,6 +712,3 @@ def test_migration_0004_on_a_fresh_database_is_a_no_op_after_0001(tmp_path):
     assert _alembic(db, "upgrade", "head").returncode == 0
 
 
-def test_masked_aadhaar_is_name_checked_with_the_apis_aadhaar_doc_type():
-    spec = identity_flow.extraction_for("AADHAAR_MASKED")
-    assert spec is not None and spec.doc_type == "aadhaar" and spec.name_fields == ("fields.name.value",)
