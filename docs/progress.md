@@ -121,8 +121,8 @@ Last updated: 2026-11-19
   status words RECEIVED / DEFERRED / NEEDS_HELP / NOT_PROVIDED.
 - **Identity is part of the registration stage order only** (`next_farm_stage(..., with_identity=True)`), so the
   reusable farm sub-flow for ADD_FARM does not ask for it again.
-- **Failed images are not stored** (no `REJECTED` rows yet): Python rejections leave nothing behind, so a retaken photo
-  is never confused with a reused one. `REJECTED` is reserved for the vision check.
+- **Failed images are not stored** (Python rejections leave nothing behind), so a retaken photo is never confused with a
+  reused one. The one exception: an ID whose name could not be read (name check NOT_FOUND) is kept as `REJECTED`.
 - **A selfie that arrives after its challenge expired is not counted as a failed attempt**; it just gets a new challenge.
 - **`anonymize_farmer` refuses to run without the identity service** when the farmer has identity images, so images
   can never be left behind by a forgotten argument.
@@ -130,3 +130,48 @@ Last updated: 2026-11-19
   `ANTHROPIC_API_KEY` caused connection-refused errors during live testing.
 - **Review edits are text-only.** At `REVIEW_REGISTRATION` an image is refused (no farm photo is added, no ID or selfie is stored). A country correction that would invalidate the chosen ID type is refused, because it would silently wipe the ID. Text details (name, country, farm name, address, crops, land, language) stay editable. Covered by 2 tests in `tests/test_identity.py` (195 tests pass).
 - **"No" / "not now" to the welcome question ends the prompt.** An unregistered farmer with no active flow who declines (intent DENY, or the plain words no / not now / no thanks) now gets the "No problem! Message us whenever you are ready" reply (`Action.DECLINE`). Before, DENY fell through to the general handler, which re-sent "Would you like to register your farm?" every time. Covered by 3 parametrised tests in `tests/test_registration_flow.py`.
+- **ID name check is advisory and never verifies.** After an ID front is stored, an external extraction API
+  (`doc_extract_service.py`) returns the name on it; `name_match.py` (rapidfuzz, tolerant of order, initials, titles,
+  accents, typos) compares it with the farmer's name: MATCHED / PARTIAL / MISMATCH / NOT_FOUND / ERROR / SKIPPED. Which ID
+  types are sent and which fields hold the name is config (`extraction:` in `id_documents.yaml`, validated at startup).
+  Only PASSPORT, PAN and VOTER_ID are configured; the rest are SKIPPED. Mismatch: two buttons ([Change my name] re-compares
+  without a new API call, [Upload another ID] supersedes and re-checks); free text is read by Claude; after
+  `NAME_CHECK_MAX_ATTEMPTS` the ID becomes NEEDS_HELP for the operations team and the flow continues. API failure (ERROR)
+  never blocks the farmer. `extracted_name` is stored only on the identity row (migration `0004`) and returned only by the
+  admin farmer-detail endpoint; it is never logged, never in the draft, never in a Claude prompt. Off by default
+  (`DOC_EXTRACT_ENABLED=false`). Tests: `tests/test_name_check.py` (88).
+  The live API wraps fields as `{"fields": {"name": {"value": ...}}}`, so `name_fields` are `fields.name.value` etc.; the
+  first live run read nothing (NOT_FOUND) because the config expected a flat `name`. Only VOTER_ID was confirmed against a real
+  response; PASSPORT and PAN paths are assumed to follow the same envelope.
+- **The "Checking your ID..." holding message is sent directly, not through the outbox**, because the outbox only flushes
+  after the turn's commit. It carries no state; the real reply still goes through the outbox.
+- **Not done:** the background re-run of ERROR checks ("may re-run later"); a real run against the live extraction API
+  (only mocked so far); PAN and Voter ID are covered by unit tests only (the end-to-end tests use a Botswana passport).
+- **Run `alembic upgrade head`** for migration `0004` before deploying (Postgres too).
+- **Selfie face check is advisory and never verifies.** After a selfie is stored, an external face-verification API
+  (`face_verify_service.py`) compares it with the accepted ID front (a PDF ID is rendered to a PNG with pypdfium2 first).
+  Python reads the result in a fixed order (error, no face in the ID, no face in the selfie, liveness, verified):
+  MATCHED / MISMATCH / NO_FACE_ID / NO_FACE_SELFIE / LIVENESS_FAILED / ERROR, plus SKIPPED (off, or PDF could not be
+  converted) and PENDING_ID (no accepted ID yet; it runs automatically when one is accepted, including from the later
+  identity flow, and again when a new ID replaces the old one). Mismatch: [Take a new selfie] / [Upload another ID]
+  (free text is read by Claude through the new `identity_choice` field); the farmer never sees a score. After
+  `FACE_VERIFY_MAX_ATTEMPTS` failed checks `selfie_status` becomes NEEDS_HELP for the operations team and the flow
+  continues. The attempt total is a running count on the SELFIE rows. Results live on the selfie's `identity_documents`
+  row (migration `0005`, no new tables; a check constraint keeps `face_*` to SELFIE rows) and are returned by the admin
+  farmer-detail endpoint. Off by default (`FACE_VERIFY_ENABLED=false`). Tests: `tests/test_face_check.py` (62).
+- **The reply guard now allows "the selfie does not match" only for the Python-supplied face result**
+  (`face_result_supplied`); in every other reply it is still blocked, and calling an ID fake is always blocked.
+- **Not done (face check):** the background re-run of ERROR checks ("may re-run later"); a real run against the live face
+  API (only mocked so far, so its response shape and the ~15 s latency are untested end to end).
+- **Run `alembic upgrade head`** for migration `0005` before deploying (Postgres too; tested on SQLite only), and
+  `pip install -r requirements.txt` for `pypdfium2`.
+- **The face API answers "no face found" with HTTP 422 and a normal result body** (found with a synthetic probe after the
+  first live run logged `status=422`). The client now reads a 4xx whose body is a result as a result, and an explicit
+  `face_found_*: false` wins over the `error` text, so NO_FACE_ID / NO_FACE_SELFIE can happen. This refines the written
+  order (error first), which would otherwise have turned every no-face answer into a silent ERROR. A real validation 4xx
+  (`detail`) now fails with the field names in the logged reason. Tests: `tests/test_face_check.py` (68).
+- **The face API has its own image-quality gate, and WhatsApp-compressed photos fail it.** Replaying the stored ID and selfie of a live test returned `422 {"error": "image quality check failed", "issues": ["ID photo is too blurry (sharpness 18.5 < 25.0)", "selfie is too blurry (sharpness 18.4 < 60.0)"]}` (the same photos pass in Postman as originals). The client now keeps the `issues` text in `face_error_message` for operations; the result stays ERROR, so the farmer is not blocked and is told nothing. The fix for a real run belongs on the API side (its sharpness thresholds, or a way to skip the gate for WhatsApp images). Tests: `tests/test_face_check.py` (70).
+- **Face check ERROR now tells the farmer it is pending** (a live run returned `http_401` and the farmer saw only "selfie received"): "We couldn't finish the automatic photo check right now. Your selfie is saved, and the Ezina team will complete the check." No reason or code is shown. SKIPPED and PENDING_ID still say nothing. A live 401 means the API key is not being sent (`FACE_VERIFY_API_KEY` / `FACE_VERIFY_API_KEY_HEADER`).
+- **Face check: sharpen-and-retry for "too blurry" rejections (`FACE_VERIFY_SHARPEN_RETRY`, default true).** The face API's own quality gate rejected every WhatsApp photo ("selfie is too blurry (sharpness 15 < 60)"), so the automatic check never ran. An experiment on a stored live pair: unsharp mask r=2 / 250% passed the gate and matched; r=3 / 400% failed the API's liveness check; a 2x upscale still failed. The client now retries ONCE with a mildly sharpened JPEG copy of only the photo(s) the API names as blurry; stored images are unchanged; a second failure is ERROR (farmer told it is pending). Validated on ONE real pair only: watch the MATCHED / LIVENESS_FAILED / MISMATCH mix on real farmers. The proper fix is still to relax the sharpness thresholds on the API side (then set FACE_VERIFY_SHARPEN_RETRY=false). Tests: `tests/test_face_check.py` (76).
+- **ID and selfie upload instructions now use the farm-photo style (wording only).** The ID prompt says "...of the *front* of your <ID>: tap 📎 (Attach) → Camera or Gallery." The selfie prompt says "please send a *new selfie*: tap 📎 (Attach) → Camera and take it now with your front camera..." (Camera only, no Gallery, because a selfie must be a live photo and a file or gallery image is refused). No logic changed; no existing test asserted the old wording. Added `test_id_and_selfie_prompts_use_the_attach_wording_of_the_farm_photo_step`. Spec sample conversation updated. The retry messages (FACE_NEW_SELFIE, FACE_ID_UNCLEAR, NAME_NOT_FOUND) keep their own wording.
+- **Masked Aadhaar is now name-checked.** A live test showed `name_check_status = SKIPPED` for an `AADHAAR_MASKED` upload because the `extraction:` section of `id_documents.yaml` only listed PASSPORT, PAN and VOTER_ID (so the check silently did not run, by configuration, not a fault). Added `AADHAAR_MASKED: doc_type "aadhaar", name_fields ["fields.name.value"]`, confirmed against the live extraction API (it returns `fields.name.value` for `aadhaar`). Still without a name check: DRIVING_LICENCE, OMANG, KCC (no `doc_type` configured; the API also lists `za_id` for South Africa, not wired). Tests: `tests/test_name_check.py`.

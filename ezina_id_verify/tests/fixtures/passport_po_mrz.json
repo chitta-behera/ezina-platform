@@ -1,0 +1,135 @@
+{
+ "TextDetections": [
+  {
+   "DetectedText": "POUTOERIKSSON<<ANNA<MARIA<<<<<<<<<<<<<<<<<<<",
+   "Type": "LINE",
+   "Id": 0,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.578,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.05
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.05
+     },
+     {
+      "X": 0.6579999999999999,
+      "Y": 0.05
+     },
+     {
+      "X": 0.6579999999999999,
+      "Y": 0.09
+     },
+     {
+      "X": 0.08,
+      "Y": 0.09
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "POUTOERIKSSON<<ANNA<MARIA<<<<<<<<<<<<<<<<<<<",
+   "Type": "WORD",
+   "Id": 1000,
+   "ParentId": 0,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.578,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.05
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.05
+     },
+     {
+      "X": 0.6579999999999999,
+      "Y": 0.05
+     },
+     {
+      "X": 0.6579999999999999,
+      "Y": 0.09
+     },
+     {
+      "X": 0.08,
+      "Y": 0.09
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "L898902C36UTO7408122F1204159ZE184226B<<<<<10",
+   "Type": "LINE",
+   "Id": 1,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.578,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.11
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.11
+     },
+     {
+      "X": 0.6579999999999999,
+      "Y": 0.11
+     },
+     {
+      "X": 0.6579999999999999,
+      "Y": 0.15
+     },
+     {
+      "X": 0.08,
+      "Y": 0.15
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "L898902C36UTO7408122F1204159ZE184226B<<<<<10",
+   "Type": "WORD",
+   "Id": 1100,
+   "ParentId": 1,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.578,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.11
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.11
+     },
+     {
+      "X": 0.6579999999999999,
+      "Y": 0.11
+     },
+     {
+      "X": 0.6579999999999999,
+      "Y": 0.15
+     },
+     {
+      "X": 0.08,
+      "Y": 0.15
+     }
+    ]
+   }
+  }
+ ],
+ "TextModelVersion": "3.0"
+}

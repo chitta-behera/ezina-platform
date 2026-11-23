@@ -7,6 +7,7 @@ Rules of the road:
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import uuid
@@ -17,9 +18,19 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import aware, utcnow
-from app.enums import DocumentType, IdentityKind, IdentityStatus, Intent, RegistrationStatus, Stage
+from app.enums import (
+    DocumentType,
+    FaceCheckStatus,
+    IdentityDocStatus,
+    IdentityKind,
+    IdentityStatus,
+    Intent,
+    NameCheckStatus,
+    RegistrationStatus,
+    Stage,
+)
 from app.logging_config import mask_phone
-from app.models import Conversation, Farm, Farmer, Message
+from app.models import Conversation, Farm, Farmer, IdentityDocument, Message
 from app.schemas.ai_response import AIResponse
 from app.schemas.conversation import Draft, Reply
 from app.services import farmer_service
@@ -251,7 +262,8 @@ class ConversationService:
         return out
 
     async def _ask_claude(self, t: Turn, text: str, stage: Stage, mode: str = "interpret",
-                          target: Stage | None = None, saved: dict | None = None) -> AIResponse | None:
+                          target: Stage | None = None, saved: dict | None = None,
+                          reply_target: str | None = None) -> AIResponse | None:
         tgt = target or successor(stage)
         address = None
         if stage == Stage.COLLECT_FARM_DETAILS or tgt == Stage.COLLECT_FARM_DETAILS:
@@ -260,7 +272,8 @@ class ConversationService:
                        "address_so_far": d.full_address_text if d.address_missing else None,
                        "asked_for": list(d.address_missing)}
         ctx = ClaudeContext(
-            stage=stage.value, next_field=NEXT_FIELD.get(stage), reply_target=TOPIC.get(tgt, "how Ezina can help (answer briefly)"),
+            stage=stage.value, next_field=NEXT_FIELD.get(stage),
+            reply_target=reply_target or TOPIC.get(tgt, "how Ezina can help (answer briefly)"),
             current_topic=TOPIC.get(stage, "the farmer's request"), collected=self._collected(t.draft),
             history=await self._history(t), message_text=text, now=utcnow(),
             preferred_language=t.draft.preferred_language or t.conv.language, mode=mode, saved_summary=saved or {},
@@ -306,6 +319,10 @@ class ConversationService:
             if not draft.preferred_language:
                 draft.detected_language, draft.detected_language_conf = ai.language, ai.confidence
 
+        if stage == Stage.COLLECT_ID_DOCUMENT and draft.name_choice_pending and await self._name_choice_ai(t, ai):
+            return
+        if stage == Stage.COLLECT_SELFIE and draft.face_choice_pending and await self._face_choice_ai(t, ai):
+            return
         in_reg = stage in IN_REGISTRATION
         registered = t.farmer.registration_status == RegistrationStatus.SUBMITTED
         has_data = bool(ai.extracted_data.provided() or ai.corrections)
@@ -591,7 +608,9 @@ class ConversationService:
             await self._send(t, M.cancel_confirm_reply())
         elif bid in (M.BTN_YES, M.BTN_NO):
             await (self._confirm(t, stage) if bid == M.BTN_YES else self._deny(t, stage))
-        elif bid.startswith(M.IDTYPE_PREFIX) or bid in (M.BTN_ID_LATER, M.BTN_SELFIE_LATER, M.BTN_ID_CHANGE):
+        elif bid.startswith(M.IDTYPE_PREFIX) or bid in (
+            M.BTN_ID_LATER, M.BTN_SELFIE_LATER, M.BTN_ID_CHANGE, M.BTN_NAME_CHANGE, M.BTN_ID_REUPLOAD, M.BTN_SELFIE_NEW
+        ):
             await self._on_identity_button(t, bid)
         elif bid == M.BTN_IDENTITY_START:
             if stage == Stage.COMPLETED and t.farmer.registration_status == RegistrationStatus.SUBMITTED:
@@ -680,8 +699,12 @@ class ConversationService:
 
     async def _on_identity_media(self, t: Turn) -> None:
         stage, d, c = self._cur(t), t.draft, t.content
+        if stage == Stage.COLLECT_SELFIE and d.face_choice_pending:  # waiting for [Take a new selfie] / [Upload another ID]
+            return await self._send_stage(t)
         challenge = challenge_at = None
         if stage == Stage.COLLECT_ID_DOCUMENT:
+            if d.name_choice_pending:  # waiting for [Change my name] / [Upload another ID]: show the choice again
+                return await self._send_stage(t)
             if not d.id_type:
                 return await self._send_stage(t, prefix=M.ID_FIRST_CHOOSE_TYPE)  # not saved as the wrong kind
             kind, attempt = (IdentityKind.ID_BACK if d.id_front_doc else IdentityKind.ID_FRONT), d.id_attempts + 1
@@ -701,12 +724,10 @@ class ConversationService:
         except IdentityRejected as e:
             return await self._identity_failed(t, kind, e)
         if kind == IdentityKind.SELFIE:
-            d.selfie_doc, d.selfie_attempts = str(doc.id), 0
-            return await self._identity_next(t, "Thank you, your selfie has been received ✅.")
+            return await self._face_check_selfie(t, doc)
         if kind == IdentityKind.ID_FRONT:
-            d.id_front_doc = str(doc.id)
-        else:
-            d.id_back_doc = str(doc.id)
+            return await self._name_check_front(t, doc)
+        d.id_back_doc = str(doc.id)
         d.id_attempts = 0
         await self._identity_next(t, "Got it ✅.")
 
@@ -734,6 +755,10 @@ class ConversationService:
     async def _identity_text(self, t: Turn, stage: Stage, low: str, text: str) -> bool:
         """Deterministic text answers at the ID / selfie stages. True when handled (no model call needed)."""
         d = t.draft
+        if stage == Stage.COLLECT_ID_DOCUMENT and d.name_choice_pending:
+            return await self._name_choice_text(t, low, text)
+        if stage == Stage.COLLECT_SELFIE and d.face_choice_pending:
+            return await self._face_choice_text(t, low, text)
         if low in SKIP_WORDS or low == "send later":
             if stage == Stage.COLLECT_ID_DOCUMENT:
                 d.id_deferred = True
@@ -751,6 +776,14 @@ class ConversationService:
 
     async def _on_identity_button(self, t: Turn, bid: str) -> None:
         stage, d = self._cur(t), t.draft
+        if stage == Stage.COLLECT_ID_DOCUMENT and d.name_choice_pending and bid not in (M.BTN_NAME_CHANGE, M.BTN_ID_REUPLOAD):
+            return await self._send_stage(t)  # the choice is open: every other ID button just shows it again
+        if stage == Stage.COLLECT_SELFIE and d.face_choice_pending:  # the face-check choice
+            if bid == M.BTN_SELFIE_NEW:
+                return await self._face_new_selfie(t)
+            if bid == M.BTN_ID_REUPLOAD:
+                return await self._face_other_id(t)
+            return await self._send_stage(t)  # every other button just shows the choice again
         if bid == M.BTN_ID_LATER and stage == Stage.COLLECT_ID_DOCUMENT:
             d.id_deferred = True
             return await self._identity_next(t, M.ID_DEFERRED)
@@ -759,6 +792,10 @@ class ConversationService:
             return await self._identity_next(t, M.ID_DEFERRED)
         if stage != Stage.COLLECT_ID_DOCUMENT:  # stale button from an earlier message
             return await self._send_stage(t)
+        if bid in (M.BTN_NAME_CHANGE, M.BTN_ID_REUPLOAD):  # the name-check choice
+            if not d.name_choice_pending:
+                return await self._send_stage(t)
+            return await (self._name_ask(t) if bid == M.BTN_NAME_CHANGE else self._name_reupload(t))
         if bid == M.IDTYPE_NONE:  # "I don't have any of these": operations follow up
             d.id_needs_help = True
             log.warning("identity needs help", extra={"farmer": mask_phone(t.wa_id), "item": "id_document", "reason": "no_id"})
@@ -772,6 +809,246 @@ class ConversationService:
             if it:
                 identity_flow.select_type(d, it)
         await self._send_stage(t)
+
+    # ---------------------------------------------------------------------- ID name check (advisory)
+    async def _name_check_front(self, t: Turn, doc: IdentityDocument) -> None:
+        """After an ID front was accepted and stored: read the name on it and compare. Never verifies anyone."""
+        d = t.draft
+        status = await self._extract_name_with_hold(t, doc)
+        if status == NameCheckStatus.NOT_FOUND:  # unreadable name: ask for a clearer photo, counts as an attempt
+            doc.status = IdentityDocStatus.REJECTED.value
+            return await self._identity_failed(
+                t, IdentityKind.ID_FRONT, IdentityRejected("name_not_found", M.NAME_NOT_FOUND)
+            )
+        if status != NameCheckStatus.PENDING:  # SKIPPED (off / not configured) or ERROR (flagged): say nothing
+            return await self._id_accepted(t, doc, "Got it ✅.")
+        await self._name_compare(t, doc)
+
+    async def _extract_name_with_hold(self, t: Turn, doc: IdentityDocument) -> NameCheckStatus:
+        """Run the extraction; if it takes longer than DOC_EXTRACT_HOLD_SECONDS, tell the farmer we are checking."""
+        task = asyncio.ensure_future(self.c.identity.extract_name(doc, self.c.doc_extract))
+        done, _ = await asyncio.wait({task}, timeout=self.s.doc_extract_hold_seconds)
+        if not done:
+            await self._send_now(t, Reply(M.NAME_CHECK_HOLD))
+        return await task
+
+    async def _send_now(self, t: Turn, reply: Reply) -> None:
+        """A transient holding notice, sent immediately (the outbox only flushes after this turn's commit).
+
+        It carries no state, so losing it is harmless; the real reply still goes through the outbox.
+        """
+        try:
+            for payload in payloads_for_reply(t.wa_id, reply):
+                await self.c.whatsapp.send_payload(payload)
+        except Exception as e:
+            log.warning("holding message not sent", extra={"error": type(e).__name__})
+
+    async def _name_compare(self, t: Turn, doc: IdentityDocument) -> None:
+        """Compare the farmer's name with doc.extracted_name (no API call) and route on the result."""
+        d = t.draft
+        status = self.c.identity.compare_name(doc, d.full_name or t.farmer.full_name)
+        if status == NameCheckStatus.MATCHED:
+            doc.name_check_attempts = d.name_check_attempts
+            d.name_choice_pending = d.name_awaiting = False
+            d.name_check_doc = None
+            return await self._id_accepted(t, doc, M.ID_RECEIVED)
+        d.name_check_attempts += 1  # PARTIAL / MISMATCH
+        doc.name_check_attempts = d.name_check_attempts
+        d.name_awaiting = False
+        if d.name_check_attempts >= self.s.name_check_max_attempts:
+            d.name_choice_pending, d.name_check_doc, d.id_front_doc = False, None, None
+            d.id_needs_help = True  # the document stays stored with its result for the operations team
+            log.warning("identity needs help", extra={"farmer": mask_phone(t.wa_id), "item": "id_document",
+                                                       "reason": "name_check", "result": status.value})
+            return await self._identity_next(t, M.NAME_CHECK_GIVE_UP)
+        d.name_choice_pending, d.name_check_doc = True, str(doc.id)
+        reply = M.name_mismatch_reply(d.full_name or t.farmer.full_name)
+        reply.body = await self._localised(t, reply.body)
+        await self._send(t, reply)
+
+    async def _localised(self, t: Turn, body: str, *, saved: dict | None = None, target: str | None = None,
+                         face_result: bool = False) -> str:
+        """A fixed message worded by Claude in the farmer's language. Falls back to the English template."""
+        lang = (t.draft.preferred_language or t.conv.language or "en").lower()
+        if lang == "en":
+            return body
+        name = t.draft.full_name or t.farmer.full_name or ""
+        if saved is None:  # the name-check mismatch (the default)
+            saved = {"name_check": "the name on the ID document does not match the name the farmer gave", "name_given": name}
+            target = (
+                "kindly tell the farmer that the name on their ID document does not match the name they gave "
+                "(name_given), and ask them to choose one of the two options the program shows as buttons. Say nothing "
+                "about what the ID says, never accuse the farmer, and do not list the options in the text"
+            )
+        ai = await self._ask_claude(t, "", self._cur(t), mode="compose", saved=saved, reply_target=target)
+        text = ai.suggested_response if ai else ""
+        ok, _ = reply_guard.check_reply(text, t.draft, face_result_supplied=face_result)
+        return text if ok else body
+
+    async def _name_ask(self, t: Turn) -> None:
+        t.draft.name_awaiting = True
+        await self._send(t, Reply(M.NAME_ASK))
+
+    async def _name_reupload(self, t: Turn) -> None:
+        """[Upload another ID]: the compared document is SUPERSEDED, then ID type selection and a new photo."""
+        d = t.draft
+        await self.c.identity.supersede(self.session, t.farmer.id, IdentityKind.ID_FRONT)
+        identity_flow.reset_id(d)  # also clears the pending choice; the attempt count is kept
+        await self._send_stage(t)
+
+    async def _name_new(self, t: Turn, raw: str) -> None:
+        """The farmer typed their name as written on the ID: update it and re-compare (no API call)."""
+        d = t.draft
+        try:
+            name = validators.validate_name(raw)
+        except validators.ValidationFailure:
+            d.name_awaiting = True
+            return await self._send(t, Reply(M.NAME_INVALID))
+        d.full_name, d.name_awaiting = name, False
+        if t.farmer.registration_status == RegistrationStatus.SUBMITTED or t.conv.active_flow == "identity":
+            t.farmer.full_name = name
+        doc = await self.session.get(IdentityDocument, uuid.UUID(d.name_check_doc)) if d.name_check_doc else None
+        if doc is None or doc.extracted_name is None:  # nothing to compare against: carry on, operations review it
+            d.name_choice_pending, d.name_check_doc = False, None
+            return await self._send_stage(t)
+        await self._name_compare(t, doc)
+
+    async def _name_choice_text(self, t: Turn, low: str, text: str) -> bool:
+        """Text while the choice is open. Deterministic where it can be; otherwise Claude decides (_name_choice_ai)."""
+        d = t.draft
+        if d.name_awaiting:
+            await self._name_new(t, text)
+            return True
+        if low in {"change my name", "change name", "change my name please"}:
+            await self._name_ask(t)
+            return True
+        if low in {"upload another id", "upload another", "another id", "different id", "new id", "send another id"}:
+            await self._name_reupload(t)
+            return True
+        return False
+
+    async def _name_choice_ai(self, t: Turn, ai: AIResponse) -> bool:
+        """Claude's reading of a free-text reply to the mismatch message. True when handled here."""
+        if ai.intent in (Intent.OPT_OUT, Intent.REQUEST_HUMAN_SUPPORT, Intent.CANCEL_REGISTRATION,
+                         Intent.CHECK_REGISTRATION_STATUS, Intent.CHECK_VERIFICATION_STATUS):
+            return False  # always honoured by the normal routing
+        new = ai.extracted_data.full_name or next((c.new_value for c in ai.corrections if c.field == "full_name"), None)
+        if new:
+            await self._name_new(t, new)
+        elif ai.intent == Intent.SUBMIT_IDENTITY_DOCUMENTS:
+            await self._name_reupload(t)
+        else:
+            await self._send_stage(t)  # not understood: show the two buttons again
+        return True
+
+    # ---------------------------------------------------------------------- selfie face check (advisory)
+    async def _doc(self, ref: str | None) -> IdentityDocument | None:
+        """An ACCEPTED identity document by its draft reference, or None."""
+        if not ref:
+            return None
+        doc = await self.session.get(IdentityDocument, uuid.UUID(ref))
+        return doc if doc is not None and doc.status == IdentityDocStatus.ACCEPTED.value else None
+
+    async def _id_accepted(self, t: Turn, doc: IdentityDocument, prefix: str) -> None:
+        """An ID front was accepted. If a selfie is already on file, compare it with this ID now."""
+        d = t.draft
+        d.id_front_doc, d.id_attempts = str(doc.id), 0
+        selfie = await self._doc(d.selfie_doc)
+        if selfie is not None and self.c.face_verify.available:
+            return await self._face_check(t, selfie, doc, prefix)
+        await self._identity_next(t, prefix)
+
+    async def _face_check_selfie(self, t: Turn, selfie: IdentityDocument) -> None:
+        """A selfie was accepted and stored: compare it with the farmer's accepted ID front, if there is one."""
+        id_doc = await self._doc(t.draft.id_front_doc)
+        await self._face_check(t, selfie, id_doc, M.SELFIE_RECEIVED)
+
+    async def _face_check(self, t: Turn, selfie: IdentityDocument, id_doc: IdentityDocument | None, prefix: str) -> None:
+        d = t.draft
+        if self.c.face_verify.available and id_doc is not None:  # the API is slow (~15 s): say so first
+            await self._send_now(t, Reply(M.FACE_CHECK_HOLD))
+        status = await self.c.identity.face_check(selfie, id_doc, self.c.face_verify)
+        if status in (FaceCheckStatus.MATCHED, FaceCheckStatus.SKIPPED, FaceCheckStatus.ERROR, FaceCheckStatus.PENDING_ID):
+            # MATCHED, or nothing to say about the check (off, no ID yet, API error: flagged): the selfie is received
+            selfie.face_check_attempts = d.face_check_attempts
+            d.selfie_doc, d.selfie_attempts = str(selfie.id), 0
+            d.face_check_doc, d.face_choice_pending = None, False
+            if status == FaceCheckStatus.ERROR:  # the check could not run: say it is pending (operations are flagged)
+                prefix = f"{prefix}\n\n{M.FACE_CHECK_PENDING}" if prefix else M.FACE_CHECK_PENDING
+            return await self._identity_next(t, prefix)
+        d.face_check_attempts += 1  # MISMATCH / NO_FACE_ID / NO_FACE_SELFIE / LIVENESS_FAILED
+        selfie.face_check_attempts = d.face_check_attempts
+        if d.face_check_attempts >= self.s.face_verify_max_attempts:
+            d.selfie_doc, d.face_check_doc, d.face_choice_pending = None, None, False
+            d.selfie_needs_help = True  # the photos stay stored with the result for the operations team
+            log.warning("identity needs help", extra={"farmer": mask_phone(t.wa_id), "item": "selfie",
+                                                       "reason": "face_check", "result": status.value})
+            return await self._identity_next(t, M.FACE_CHECK_GIVE_UP)
+        if status == FaceCheckStatus.MISMATCH:
+            d.selfie_doc, d.face_check_doc, d.face_choice_pending = None, str(selfie.id), True
+            reply = M.face_mismatch_reply()
+            reply.body = await self._localised(
+                t, reply.body, saved={"face_check": "the selfie does not seem to match the photo on the ID document"},
+                target=(
+                    "kindly tell the farmer that their selfie does not seem to match the photo on their ID document, "
+                    "give short tips for a new selfie (face the light, no cap or sunglasses, face fully in the frame, "
+                    "look the way they do on the ID if possible) and ask them to choose one of the two options the "
+                    "program shows as buttons. Never accuse the farmer, never give a score, and do not list the options"
+                ),
+                face_result=True,
+            )
+            self._resolve(t)  # the farmer is now at the selfie step, whichever step this turn started from
+            return await self._send(t, reply)
+        if status == FaceCheckStatus.NO_FACE_ID:  # the ID photo has no clear face: the selfie is fine, the ID is not
+            d.selfie_doc, d.face_check_doc = str(selfie.id), None
+            await self.c.identity.supersede(self.session, t.farmer.id, IdentityKind.ID_FRONT)
+            d.id_front_doc, d.id_attempts = None, 0
+            return await self._send_stage(t, prefix=M.FACE_ID_UNCLEAR)
+        selfie.status = IdentityDocStatus.REJECTED.value  # NO_FACE_SELFIE / LIVENESS_FAILED: a new selfie, new challenge
+        d.selfie_doc, d.face_check_doc = None, None
+        identity_flow.issue_challenge(d, utcnow())
+        await self._send_stage(t, prefix=M.FACE_NEW_SELFIE)
+
+    async def _face_new_selfie(self, t: Turn) -> None:
+        """[Take a new selfie]: the compared selfie is SUPERSEDED, then a selfie step with a new challenge."""
+        d = t.draft
+        d.face_choice_pending, d.face_check_doc, d.selfie_doc = False, None, None
+        await self.c.identity.supersede(self.session, t.farmer.id, IdentityKind.SELFIE)
+        identity_flow.issue_challenge(d, utcnow())
+        await self._send_stage(t, prefix=M.SELFIE_TIPS)
+
+    async def _face_other_id(self, t: Turn) -> None:
+        """[Upload another ID]: the old ID is SUPERSEDED; the new one goes through the name check, then the face check
+        runs again with the current selfie."""
+        d = t.draft
+        d.selfie_doc, d.face_check_doc, d.face_choice_pending = d.face_check_doc, None, False
+        await self.c.identity.supersede(self.session, t.farmer.id, IdentityKind.ID_FRONT)
+        identity_flow.reset_id(d)
+        await self._send_stage(t)
+
+    async def _face_choice_text(self, t: Turn, low: str, text: str) -> bool:
+        """Text while the face choice is open: deterministic phrases here, anything else goes to Claude."""
+        if low in {"take a new selfie", "new selfie", "another selfie", "retake", "retake selfie", "send another selfie"}:
+            await self._face_new_selfie(t)
+            return True
+        if low in {"upload another id", "upload another", "another id", "different id", "new id", "send another id"}:
+            await self._face_other_id(t)
+            return True
+        return False
+
+    async def _face_choice_ai(self, t: Turn, ai: AIResponse) -> bool:
+        """Claude's reading of a free-text reply to the face mismatch message. True when handled here."""
+        if ai.intent in (Intent.OPT_OUT, Intent.REQUEST_HUMAN_SUPPORT, Intent.CANCEL_REGISTRATION,
+                         Intent.CHECK_REGISTRATION_STATUS, Intent.CHECK_VERIFICATION_STATUS):
+            return False  # always honoured by the normal routing
+        choice = (ai.identity_choice or "").upper()
+        if choice == "NEW_SELFIE":
+            await self._face_new_selfie(t)
+        elif choice == "OTHER_ID":
+            await self._face_other_id(t)
+        else:
+            await self._send_stage(t)  # not understood: show the two buttons again
+        return True
 
     async def _reset_id_if_country_changed(self, t: Turn) -> None:
         d = t.draft
@@ -788,7 +1065,8 @@ class ConversationService:
         """SUBMIT_IDENTITY_DOCUMENTS: a registered farmer sends the missing ID document and/or selfie later."""
         f = t.farmer
         docs = await self.c.identity.accepted(self.session, f.id)
-        d = Draft(country=f.country, preferred_language=f.preferred_language)
+        d = Draft(country=f.country, preferred_language=f.preferred_language, full_name=f.full_name,
+                  face_check_attempts=await self.c.identity.face_attempts(self.session, f.id))
         front, back, selfie = docs.get("ID_FRONT"), docs.get("ID_BACK"), docs.get("SELFIE")
         if f.id_document_status == IdentityStatus.RECEIVED and front:
             d.id_type, d.id_front_doc, d.id_back_required = front.id_document_type, str(front.id), back is not None

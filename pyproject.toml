@@ -1,0 +1,50 @@
+# Packaging for the ID verification module in ezina_id_verify/ (the rest of the repo is installed from requirements.txt).
+#   pip install -e .          the library, into the same venv as ezina-connect
+#   pip install -e ".[api]"   + the optional HTTP wrapper
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ezina-id-verify"
+version = "0.1.0"
+description = "ID document name extraction and face match for Ezina, using AWS Rekognition"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "boto3>=1.34",
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+    "PyYAML>=6.0",
+    "Pillow>=10.0",
+]
+
+[project.optional-dependencies]
+# the optional HTTP wrapper (ezina_id_verify.api)
+api = ["fastapi>=0.110", "uvicorn>=0.29", "python-multipart>=0.0.9"]
+# the optional LLM fallback for name extraction (LLM_FALLBACK_ENABLED=true)
+llm = ["anthropic>=0.40"]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "httpx>=0.27",
+    "fastapi>=0.110",
+    "python-multipart>=0.0.9",
+    "anthropic>=0.40",
+]
+
+[tool.setuptools]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ezina_id_verify*"]
+
+[tool.setuptools.package-data]
+# config/ is a data folder (no __init__.py) next to the config.py module
+ezina_id_verify = ["config/*.yaml"]
+
+# Used when pytest runs for ezina_id_verify (ezina-connect has its own ezina-connect/pytest.ini, which wins inside that folder).
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["ezina_id_verify/tests"]
+filterwarnings = ["ignore::DeprecationWarning"]

@@ -12,12 +12,15 @@ from app.config import get_settings
 from app.logging_config import setup_logging
 from app.services.container import Container
 from app.services.message_processor import MessageProcessor
+from app.workflows import identity_flow
 
 log = logging.getLogger("ezina.app")
 
 
 def create_app(container: Container | None = None) -> FastAPI:
     """`container` can be injected (tests); otherwise it is built from settings on startup."""
+
+    identity_flow.validate_config()  # fail at startup, clearly, if config/id_documents.yaml is malformed
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):

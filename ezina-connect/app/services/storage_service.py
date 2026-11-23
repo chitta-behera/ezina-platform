@@ -10,6 +10,7 @@ from app.config import Settings
 
 class StorageBackend(Protocol):
     async def put(self, key: str, data: bytes, content_type: str) -> str: ...
+    async def get(self, key: str) -> bytes: ...
     async def delete(self, key: str) -> None: ...
 
 
@@ -32,6 +33,9 @@ class LocalStorage:
 
         await asyncio.to_thread(_write)
         return key
+
+    async def get(self, key: str) -> bytes:
+        return await asyncio.to_thread(lambda: self._path(key).read_bytes())
 
     async def delete(self, key: str) -> None:
         await asyncio.to_thread(lambda: self._path(key).unlink(missing_ok=True))
@@ -56,6 +60,12 @@ class S3Storage:
             self.client.put_object, Bucket=self.bucket, Key=key, Body=data, ContentType=content_type, **extra
         )
         return key
+
+    async def get(self, key: str) -> bytes:
+        def _read() -> bytes:
+            return self.client.get_object(Bucket=self.bucket, Key=key)["Body"].read()
+
+        return await asyncio.to_thread(_read)
 
     async def delete(self, key: str) -> None:
         await asyncio.to_thread(self.client.delete_object, Bucket=self.bucket, Key=key)

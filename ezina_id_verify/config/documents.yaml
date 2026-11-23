@@ -1,0 +1,271 @@
+# Document types for name extraction. Adding a type needs only an entry here (see the repo README, section "ID verification").
+#
+# YAML note: write the words no, yes, on, off in quotes ("no"), otherwise YAML turns them into true / false.
+#
+# defaults:   shared by every document
+#   titles        removed from the start of a name (Mr, Shri, ...)
+#   stop_words    single words that are never part of a name; used by the layout strategies, which have no label to go by
+#   stop_phrases  header / field phrases that are never a name; used by every strategy
+#   skip_labels   labels of RELATIVES ("Father's Name", "S/O", ...): their value is never returned
+#
+# documents.<doc_type>:   lowercase letters, digits, underscore. The key is what callers pass as doc_type.
+#   country       informational
+#   aliases       other spellings accepted for doc_type
+#   strategies    tried IN THIS ORDER, the first that finds a valid name wins:
+#                   mrz     machine-readable zone (ICAO 9303: passports TD3, ID cards TD1/TD2)
+#                   label   a printed field label, value on the same line or the line below  (needs `labels`)
+#                   layout  position on the card, no label                                   (needs `layout`)
+#                   llm     optional Claude fallback; used only when LLM_FALLBACK_ENABLED=true
+#   labels        label variants, matched case-insensitively and loosely (spaces, apostrophes and "/" tolerated):
+#                   full_name    a single full-name label ("Name", "Full Names")
+#                   surname      surname label(s); with given_names the two are returned separately
+#                   given_names  GROUPS of label variants (a list of lists), one group per field, values joined in order
+#                                ("First Name" + "Middle Name"). Full name = "given names surname".
+#                   skip         extra labels for this document whose value must never be returned
+#                 Put longer / bilingual variants in the list as well ("surname / van"): the longest match on a line wins.
+#   layout        aadhaar_above_dob | pan_header | first_name_line
+#   stop_words / stop_phrases   extra words / phrases for this document only
+
+defaults:
+  titles: [mr, mrs, ms, miss, mx, shri, shree, smt, shrimati, kumari, kum, sri, dr, prof]
+  stop_words:
+    - name
+    - names
+    - surname
+    - forename
+    - forenames
+    - given
+    - first
+    - middle
+    - full
+    - firstname
+    - firstnames
+    - dob
+    - birth
+    - born
+    - year
+    - date
+    - sex
+    - gender
+    - male
+    - female
+    - transgender
+    - father
+    - mother
+    - husband
+    - wife
+    - spouse
+    - son
+    - daughter
+    - address
+    - signature
+    - card
+    - number
+    - "no"      # quoted: an unquoted no / yes / on / off is read by YAML as true / false
+    - id
+    - identity
+    - identification
+    - government
+    - govt
+    - india
+    - indian
+    - republic
+    - kenya
+    - botswana
+    - nigeria
+    - ghana
+    - africa
+    - african
+    - south
+    - national
+    - authority
+    - unique
+    - department
+    - income
+    - tax
+    - permanent
+    - account
+    - aadhaar
+    - aadhar
+    - voter
+    - elector
+    - electors
+    - election
+    - commission
+    - photo
+    - driving
+    - licence
+    - license
+    - passport
+    - issue
+    - issued
+    - expiry
+    - expires
+    - valid
+    - validity
+    - nationality
+    - place
+    - holder
+    - bearer
+    - type
+    - code
+    - specimen
+    - sample
+    - void
+    - copy
+  stop_phrases:
+    - government of india
+    - govt of india
+    - income tax department
+    - unique identification authority of india
+    - permanent account number
+    - election commission of india
+    - date of birth
+    - date of issue
+    - date of expiry
+    - year of birth
+    - place of birth
+    - driving licence
+    - driving license
+    - identity card
+    - national id
+    - republic of kenya
+    - republic of botswana
+    - republic of ghana
+    - republic of south africa
+    - federal republic of nigeria
+    - national identification number
+    - id number
+    - document number
+    - sex
+    - gender
+    - dob
+  skip_labels:
+    - father's name
+    - father name
+    - name of father
+    - husband's name
+    - husband name
+    - mother's name
+    - mother name
+    - spouse's name
+    - spouse name
+    - guardian's name
+    - relation name
+    - relative's name
+    - s/o
+    - d/o
+    - w/o
+    - c/o
+    - son of
+    - daughter of
+    - wife of
+    - care of
+    - s/d/w of
+    - s/dw of
+    - sdw of
+    - s/d/w
+    - sdw
+    - son/daughter/wife of
+
+documents:
+  # ------------------------------------------------------------------------------------------ any country
+  passport:
+    description: Any ICAO passport. The MRZ is preferred; the printed Surname / Given names are the fallback.
+    strategies: [mrz, label, llm]
+    labels:
+      surname: ["surname", "surname/nom", "surname / nom"]
+      given_names:
+        - ["given names", "given name", "given name(s)", "given names/prenoms", "given names / prenoms", "prenoms"]
+
+  generic_id:
+    description: Unknown layout, best effort. MRZ if there is one, then common labels, then the first name-like line.
+    strategies: [mrz, label, layout, llm]
+    labels:
+      full_name: ["full names", "full name", "holder's name", "name", "names"]
+      surname: ["surname"]
+      given_names:
+        - ["given names", "given name", "first name", "forenames"]
+    layout: first_name_line
+
+  # ------------------------------------------------------------------------------------------ India
+  aadhaar:
+    country: IN
+    aliases: [aadhar, aadhaar_masked]
+    description: No label for the name. The English name is the closest name-like line above the DOB / Year of Birth line.
+    strategies: [layout, llm]
+    layout: aadhaar_above_dob
+    stop_words: [mera, meri, pehchaan, pehchan, uidai, vid, enrolment, enrollment, download, help]
+
+  pan:
+    country: IN
+    aliases: [pan_card]
+    description: New format has a "Name" label; old format has none (the first name-like line below the header).
+    strategies: [label, layout, llm]
+    labels:
+      full_name: ["name"]
+    layout: pan_header
+
+  voter_id:
+    country: IN
+    aliases: [epic, voter]
+    strategies: [label, llm]
+    labels:
+      full_name: ["elector's name", "electors name", "elector name", "name"]
+    stop_words: [epic, assembly, constituency, part, serial]
+
+  driving_licence:
+    country: IN
+    aliases: [driving_license, dl]
+    strategies: [label, llm]
+    labels:
+      full_name: ["name of licence holder", "name of license holder", "name of the holder", "name of holder", "holder's name", "name"]
+    stop_words: [transport, motor, vehicles, cov, blood, group, till]
+
+  # ------------------------------------------------------------------------------------------ Africa
+  botswana_omang:
+    country: BW
+    aliases: [omang]
+    strategies: [label, llm]
+    labels:
+      surname: ["surname"]
+      given_names:
+        - ["forenames", "forename(s)", "forename", "fore names"]
+
+  kenya_id:
+    country: KE
+    description: Older card has "Full Names"; the newer card has "Surname" + "Given Name".
+    strategies: [label, llm]
+    labels:
+      full_name: ["full names", "full name"]
+      surname: ["surname"]
+      given_names:
+        - ["given names", "given name"]
+
+  south_africa_id:
+    country: ZA
+    description: Smart ID card; the labels are bilingual ("Surname / Van", "Names / Voorname").
+    strategies: [label, llm]
+    labels:
+      surname: ["surname/van", "surname / van", "surname"]
+      given_names:
+        - ["names/voorname", "names / voorname", "forenames", "voorname", "names"]
+    stop_words: [van, voorname, identity, nommer]
+
+  nigeria_nin:
+    country: NG
+    strategies: [label, llm]
+    labels:
+      surname: ["surname"]
+      given_names:
+        - ["first name", "firstname", "first names"]
+        - ["middle name", "middlename"]
+
+  ghana_card:
+    country: GH
+    strategies: [label, llm]
+    labels:
+      surname: ["surname"]
+      given_names:
+        - ["firstnames", "first names", "firstname", "first name"]
+      skip: ["previous names", "previous name"]

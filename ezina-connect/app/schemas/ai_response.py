@@ -75,6 +75,12 @@ class AIResponse(BaseModel):
     clarification_reason: str | None = None
     suggested_response: str = ""
     language: str = "en"
+    identity_choice: str | None = Field(
+        default=None,
+        description="Only when the farmer was just offered the two choices after a failed selfie face check: "
+        "NEW_SELFIE if they will send another selfie, OTHER_ID if they want to use a different ID document. "
+        "Otherwise leave empty.",
+    )
 
     @field_validator("extracted_data", mode="before")
     @classmethod

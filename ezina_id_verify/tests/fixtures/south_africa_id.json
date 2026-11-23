@@ -1,0 +1,888 @@
+{
+ "TextDetections": [
+  {
+   "DetectedText": "REPUBLIC OF SOUTH AFRICA",
+   "Type": "LINE",
+   "Id": 0,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.338,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.05
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.05
+     },
+     {
+      "X": 0.41800000000000004,
+      "Y": 0.05
+     },
+     {
+      "X": 0.41800000000000004,
+      "Y": 0.09
+     },
+     {
+      "X": 0.08,
+      "Y": 0.09
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "REPUBLIC",
+   "Type": "WORD",
+   "Id": 1000,
+   "ParentId": 0,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.338,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.05
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.05
+     },
+     {
+      "X": 0.41800000000000004,
+      "Y": 0.05
+     },
+     {
+      "X": 0.41800000000000004,
+      "Y": 0.09
+     },
+     {
+      "X": 0.08,
+      "Y": 0.09
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "OF",
+   "Type": "WORD",
+   "Id": 1001,
+   "ParentId": 0,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.338,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.05
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.05
+     },
+     {
+      "X": 0.41800000000000004,
+      "Y": 0.05
+     },
+     {
+      "X": 0.41800000000000004,
+      "Y": 0.09
+     },
+     {
+      "X": 0.08,
+      "Y": 0.09
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "SOUTH",
+   "Type": "WORD",
+   "Id": 1002,
+   "ParentId": 0,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.338,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.05
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.05
+     },
+     {
+      "X": 0.41800000000000004,
+      "Y": 0.05
+     },
+     {
+      "X": 0.41800000000000004,
+      "Y": 0.09
+     },
+     {
+      "X": 0.08,
+      "Y": 0.09
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "AFRICA",
+   "Type": "WORD",
+   "Id": 1003,
+   "ParentId": 0,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.338,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.05
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.05
+     },
+     {
+      "X": 0.41800000000000004,
+      "Y": 0.05
+     },
+     {
+      "X": 0.41800000000000004,
+      "Y": 0.09
+     },
+     {
+      "X": 0.08,
+      "Y": 0.09
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "IDENTITY CARD",
+   "Type": "LINE",
+   "Id": 1,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.206,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.11
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.11
+     },
+     {
+      "X": 0.286,
+      "Y": 0.11
+     },
+     {
+      "X": 0.286,
+      "Y": 0.15
+     },
+     {
+      "X": 0.08,
+      "Y": 0.15
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "IDENTITY",
+   "Type": "WORD",
+   "Id": 1100,
+   "ParentId": 1,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.206,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.11
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.11
+     },
+     {
+      "X": 0.286,
+      "Y": 0.11
+     },
+     {
+      "X": 0.286,
+      "Y": 0.15
+     },
+     {
+      "X": 0.08,
+      "Y": 0.15
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "CARD",
+   "Type": "WORD",
+   "Id": 1101,
+   "ParentId": 1,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.206,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.11
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.11
+     },
+     {
+      "X": 0.286,
+      "Y": 0.11
+     },
+     {
+      "X": 0.286,
+      "Y": 0.15
+     },
+     {
+      "X": 0.08,
+      "Y": 0.15
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "Surname / Van",
+   "Type": "LINE",
+   "Id": 2,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.206,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.17
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.17
+     },
+     {
+      "X": 0.286,
+      "Y": 0.17
+     },
+     {
+      "X": 0.286,
+      "Y": 0.21000000000000002
+     },
+     {
+      "X": 0.08,
+      "Y": 0.21000000000000002
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "Surname",
+   "Type": "WORD",
+   "Id": 1200,
+   "ParentId": 2,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.206,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.17
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.17
+     },
+     {
+      "X": 0.286,
+      "Y": 0.17
+     },
+     {
+      "X": 0.286,
+      "Y": 0.21000000000000002
+     },
+     {
+      "X": 0.08,
+      "Y": 0.21000000000000002
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "/",
+   "Type": "WORD",
+   "Id": 1201,
+   "ParentId": 2,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.206,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.17
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.17
+     },
+     {
+      "X": 0.286,
+      "Y": 0.17
+     },
+     {
+      "X": 0.286,
+      "Y": 0.21000000000000002
+     },
+     {
+      "X": 0.08,
+      "Y": 0.21000000000000002
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "Van",
+   "Type": "WORD",
+   "Id": 1202,
+   "ParentId": 2,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.206,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.17
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.17
+     },
+     {
+      "X": 0.286,
+      "Y": 0.17
+     },
+     {
+      "X": 0.286,
+      "Y": 0.21000000000000002
+     },
+     {
+      "X": 0.08,
+      "Y": 0.21000000000000002
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "NKOSI",
+   "Type": "LINE",
+   "Id": 3,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.11,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.23
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.23
+     },
+     {
+      "X": 0.19,
+      "Y": 0.23
+     },
+     {
+      "X": 0.19,
+      "Y": 0.27
+     },
+     {
+      "X": 0.08,
+      "Y": 0.27
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "NKOSI",
+   "Type": "WORD",
+   "Id": 1300,
+   "ParentId": 3,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.11,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.23
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.23
+     },
+     {
+      "X": 0.19,
+      "Y": 0.23
+     },
+     {
+      "X": 0.19,
+      "Y": 0.27
+     },
+     {
+      "X": 0.08,
+      "Y": 0.27
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "Names / Voorname",
+   "Type": "LINE",
+   "Id": 4,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.242,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.29
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.29
+     },
+     {
+      "X": 0.322,
+      "Y": 0.29
+     },
+     {
+      "X": 0.322,
+      "Y": 0.32999999999999996
+     },
+     {
+      "X": 0.08,
+      "Y": 0.32999999999999996
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "Names",
+   "Type": "WORD",
+   "Id": 1400,
+   "ParentId": 4,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.242,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.29
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.29
+     },
+     {
+      "X": 0.322,
+      "Y": 0.29
+     },
+     {
+      "X": 0.322,
+      "Y": 0.32999999999999996
+     },
+     {
+      "X": 0.08,
+      "Y": 0.32999999999999996
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "/",
+   "Type": "WORD",
+   "Id": 1401,
+   "ParentId": 4,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.242,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.29
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.29
+     },
+     {
+      "X": 0.322,
+      "Y": 0.29
+     },
+     {
+      "X": 0.322,
+      "Y": 0.32999999999999996
+     },
+     {
+      "X": 0.08,
+      "Y": 0.32999999999999996
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "Voorname",
+   "Type": "WORD",
+   "Id": 1402,
+   "ParentId": 4,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.242,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.29
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.29
+     },
+     {
+      "X": 0.322,
+      "Y": 0.29
+     },
+     {
+      "X": 0.322,
+      "Y": 0.32999999999999996
+     },
+     {
+      "X": 0.08,
+      "Y": 0.32999999999999996
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "SIPHO THABO",
+   "Type": "LINE",
+   "Id": 5,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.182,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.35
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.35
+     },
+     {
+      "X": 0.262,
+      "Y": 0.35
+     },
+     {
+      "X": 0.262,
+      "Y": 0.38999999999999996
+     },
+     {
+      "X": 0.08,
+      "Y": 0.38999999999999996
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "SIPHO",
+   "Type": "WORD",
+   "Id": 1500,
+   "ParentId": 5,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.182,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.35
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.35
+     },
+     {
+      "X": 0.262,
+      "Y": 0.35
+     },
+     {
+      "X": 0.262,
+      "Y": 0.38999999999999996
+     },
+     {
+      "X": 0.08,
+      "Y": 0.38999999999999996
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "THABO",
+   "Type": "WORD",
+   "Id": 1501,
+   "ParentId": 5,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.182,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.35
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.35
+     },
+     {
+      "X": 0.262,
+      "Y": 0.35
+     },
+     {
+      "X": 0.262,
+      "Y": 0.38999999999999996
+     },
+     {
+      "X": 0.08,
+      "Y": 0.38999999999999996
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "Nationality / Nasionaliteit",
+   "Type": "LINE",
+   "Id": 6,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.374,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.41
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.41
+     },
+     {
+      "X": 0.454,
+      "Y": 0.41
+     },
+     {
+      "X": 0.454,
+      "Y": 0.44999999999999996
+     },
+     {
+      "X": 0.08,
+      "Y": 0.44999999999999996
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "Nationality",
+   "Type": "WORD",
+   "Id": 1600,
+   "ParentId": 6,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.374,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.41
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.41
+     },
+     {
+      "X": 0.454,
+      "Y": 0.41
+     },
+     {
+      "X": 0.454,
+      "Y": 0.44999999999999996
+     },
+     {
+      "X": 0.08,
+      "Y": 0.44999999999999996
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "/",
+   "Type": "WORD",
+   "Id": 1601,
+   "ParentId": 6,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.374,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.41
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.41
+     },
+     {
+      "X": 0.454,
+      "Y": 0.41
+     },
+     {
+      "X": 0.454,
+      "Y": 0.44999999999999996
+     },
+     {
+      "X": 0.08,
+      "Y": 0.44999999999999996
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "Nasionaliteit",
+   "Type": "WORD",
+   "Id": 1602,
+   "ParentId": 6,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.374,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.41
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.41
+     },
+     {
+      "X": 0.454,
+      "Y": 0.41
+     },
+     {
+      "X": 0.454,
+      "Y": 0.44999999999999996
+     },
+     {
+      "X": 0.08,
+      "Y": 0.44999999999999996
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "RSA",
+   "Type": "LINE",
+   "Id": 7,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.086,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.47
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.47
+     },
+     {
+      "X": 0.16599999999999998,
+      "Y": 0.47
+     },
+     {
+      "X": 0.16599999999999998,
+      "Y": 0.51
+     },
+     {
+      "X": 0.08,
+      "Y": 0.51
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "RSA",
+   "Type": "WORD",
+   "Id": 1700,
+   "ParentId": 7,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.086,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.47
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.47
+     },
+     {
+      "X": 0.16599999999999998,
+      "Y": 0.47
+     },
+     {
+      "X": 0.16599999999999998,
+      "Y": 0.51
+     },
+     {
+      "X": 0.08,
+      "Y": 0.51
+     }
+    ]
+   }
+  }
+ ],
+ "TextModelVersion": "3.0"
+}

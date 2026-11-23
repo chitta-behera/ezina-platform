@@ -17,6 +17,8 @@ BTN_REVIEW_CONFIRM, BTN_REVIEW_EDIT, BTN_REVIEW_CANCEL = "review_confirm", "revi
 BTN_YES, BTN_NO = "confirm_yes", "confirm_no"
 BTN_CANCEL_YES, BTN_CANCEL_NO = "cancel_yes", "cancel_no"
 BTN_ID_LATER, BTN_SELFIE_LATER, BTN_ID_CHANGE = "id_later", "selfie_later", "id_change"
+BTN_NAME_CHANGE, BTN_ID_REUPLOAD = "name_change", "id_reupload"  # name check: mismatch choices
+BTN_SELFIE_NEW = "selfie_new"  # face check mismatch: [Take a new selfie] (the other choice is BTN_ID_REUPLOAD)
 BTN_IDENTITY_START = "identity_start"
 IDTYPE_PREFIX, IDTYPE_NONE = "idtype_", "idtype_none"
 LANG_PREFIX = "lang_"
@@ -136,8 +138,32 @@ def address_prompt(draft: Draft) -> Reply:
     return Reply(address_question(draft.country))
 
 
+ID_RECEIVED = "Thank you, your ID has been received ✅."
+NAME_CHECK_HOLD = "Checking your ID, please wait a moment…"
+NAME_NOT_FOUND = (
+    "I couldn't read the name on that photo. Please take a clearer photo of the ID: lay it flat in good light "
+    "with all 4 corners showing."
+)
+NAME_CHECK_GIVE_UP = "Thank you. The Ezina team will review your ID and contact you if anything more is needed."
+NAME_ASK = "Please type your full name exactly as it is written on your ID."
+NAME_INVALID = "Sorry, that doesn't look like a name. Please type your full name exactly as it is written on your ID."
+
+
+def name_mismatch_reply(given_name: str | None) -> Reply:
+    """The name on the ID does not match what the farmer gave. Shows only the name the farmer gave, never the ID's."""
+    who = f" ({given_name})" if given_name else ""
+    return Reply(
+        body=f"The name on your ID doesn't match the name you gave us{who}. Please choose an option:",
+        buttons=[Button(BTN_NAME_CHANGE, "Change my name"), Button(BTN_ID_REUPLOAD, "Upload another ID")],
+    )
+
+
 def id_prompt(draft: Draft, settings: Settings) -> Reply:
     """ID type list (filtered by country), then the front / back photo request. Never asks for a number."""
+    if draft.name_awaiting:
+        return Reply(NAME_ASK)
+    if draft.name_choice_pending:
+        return name_mismatch_reply(draft.full_name)
     lang = draft.preferred_language
     if not draft.id_type:
         rows = [ListRow(f"{IDTYPE_PREFIX}{t.code}", t.name(lang)[:24]) for t in identity_flow.id_types(draft.country)]
@@ -151,7 +177,7 @@ def id_prompt(draft: Draft, settings: Settings) -> Reply:
     name = t.name(lang) if t else "ID"
     side = "back" if draft.id_front_doc else "front"
     lines = [
-        f"Please send a clear photo of the *{side}* of your {name}. "
+        f"Please send a clear photo of the *{side}* of your {name}: tap 📎 (Attach) → Camera or Gallery. "
         "Put it on a flat surface in good light, with all 4 corners showing."
     ]
     if t and t.mask and side == "front":
@@ -163,11 +189,43 @@ def id_prompt(draft: Draft, settings: Settings) -> Reply:
     )
 
 
+SELFIE_RECEIVED = "Thank you, your selfie has been received ✅."
+FACE_CHECK_HOLD = "Thank you! Checking your selfie, this takes a few seconds…"
+FACE_CHECK_PENDING = (
+    "We couldn't finish the automatic photo check right now. Your selfie is saved, and the Ezina team will complete "
+    "the check. You don't need to do anything."
+)
+SELFIE_TIPS = (
+    "Tips for the new selfie: face the light, no cap or sunglasses, keep your face fully in the frame, and look "
+    "the way you do on your ID if you can."
+)
+FACE_NEW_SELFIE = (
+    "I couldn't see your face clearly in that selfie. Please take a new selfie now with your front camera, "
+    "with your face clearly visible."
+)
+FACE_ID_UNCLEAR = (
+    "The photo on your ID isn't clear enough for me. Please send a clearer photo of the front of your ID "
+    "(or a different ID)."
+)
+FACE_CHECK_GIVE_UP = "Thank you. The Ezina team will review your photos and contact you if anything more is needed."
+
+
+def face_mismatch_reply() -> Reply:
+    """The selfie does not seem to match the photo on the ID. No score, no accusation; two buttons."""
+    return Reply(
+        body=f"Your selfie doesn't seem to match the photo on your ID. Please choose an option:\n\n{SELFIE_TIPS}",
+        buttons=[Button(BTN_SELFIE_NEW, "Take a new selfie"), Button(BTN_ID_REUPLOAD, "Upload another ID")],
+    )
+
+
 def selfie_prompt(draft: Draft) -> Reply:
+    if draft.face_choice_pending:
+        return face_mismatch_reply()
     challenge = f" and {identity_flow.challenge_text(draft.selfie_challenge)}" if draft.selfie_challenge else ""
     return Reply(
         body=(
-            f"Last step for verification: please take a *new selfie* now with your front camera{challenge}. "
+            "Last step for verification: please send a *new selfie*: tap 📎 (Attach) → Camera and take it now "
+            f"with your front camera{challenge}. "
             "Show your face clearly (no sunglasses or cap). It is kept private and used only for verification."
         ),
         buttons=[Button(BTN_SELFIE_LATER, "Send later")],

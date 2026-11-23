@@ -54,6 +54,18 @@ class Draft(BaseModel):
     selfie_challenge: int | None = None  # fingers to hold up (1-5)
     selfie_challenge_at: datetime | None = None
 
+    # ID name check. References and flags only: the name read from the ID lives on identity_documents.extracted_name,
+    # never in the draft (the draft is what Claude's context is built from).
+    name_check_attempts: int = 0  # failed comparisons so far (name changes + new IDs); NAME_CHECK_MAX_ATTEMPTS stops it
+    name_check_doc: str | None = None  # IdentityDocument UUID waiting for the farmer's choice
+    name_choice_pending: bool = False  # [Change my name] / [Upload another ID] has been offered
+    name_awaiting: bool = False  # the farmer chose "Change my name": the next text is the new name
+
+    # Selfie face check. References and flags only; the scores live on the selfie's identity_documents row.
+    face_check_attempts: int = 0  # failed face checks so far (new selfies + new IDs); FACE_VERIFY_MAX_ATTEMPTS stops it
+    face_check_doc: str | None = None  # selfie IdentityDocument UUID waiting for the farmer's choice
+    face_choice_pending: bool = False  # [Take a new selfie] / [Upload another ID] has been offered
+
     # awaiting a yes/no: {"type": "confirm_field", "field":..., "value":...} | {"type": "cancel"}
     pending: dict[str, Any] | None = None
 

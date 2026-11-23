@@ -7,3 +7,6 @@ __pycache__/
 media_store/
 .pip.log
 .uv.log
+*.egg-info/
+build/
+dist/

@@ -1,0 +1,35 @@
+{
+ "FaceDetails": [
+  {
+   "BoundingBox": {
+    "Width": 0.4,
+    "Height": 0.5,
+    "Left": 0.3,
+    "Top": 0.2
+   },
+   "Confidence": 99.9,
+   "Quality": {
+    "Brightness": 70.0,
+    "Sharpness": 80.0
+   },
+   "Sunglasses": {
+    "Value": false,
+    "Confidence": 99.0
+   },
+   "EyesOpen": {
+    "Value": true,
+    "Confidence": 99.0
+   },
+   "Smile": {
+    "Value": false,
+    "Confidence": 90.0
+   },
+   "Pose": {
+    "Roll": 1.2,
+    "Yaw": -2.0,
+    "Pitch": 3.1
+   }
+  }
+ ],
+ "OrientationCorrection": "ROTATE_0"
+}

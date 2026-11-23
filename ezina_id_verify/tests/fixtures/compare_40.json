@@ -1,0 +1,26 @@
+{
+ "SourceImageFace": {
+  "BoundingBox": {
+   "Width": 0.2,
+   "Height": 0.3,
+   "Left": 0.1,
+   "Top": 0.3
+  },
+  "Confidence": 99.8
+ },
+ "FaceMatches": [
+  {
+   "Similarity": 40.1,
+   "Face": {
+    "BoundingBox": {
+     "Width": 0.4,
+     "Height": 0.5,
+     "Left": 0.3,
+     "Top": 0.2
+    },
+    "Confidence": 99.9
+   }
+  }
+ ],
+ "UnmatchedFaces": []
+}

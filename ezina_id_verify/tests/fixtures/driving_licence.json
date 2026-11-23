@@ -1,0 +1,890 @@
+{
+ "TextDetections": [
+  {
+   "DetectedText": "DRIVING LICENCE",
+   "Type": "LINE",
+   "Id": 0,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.23,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.05
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.05
+     },
+     {
+      "X": 0.31,
+      "Y": 0.05
+     },
+     {
+      "X": 0.31,
+      "Y": 0.09
+     },
+     {
+      "X": 0.08,
+      "Y": 0.09
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "DRIVING",
+   "Type": "WORD",
+   "Id": 1000,
+   "ParentId": 0,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.23,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.05
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.05
+     },
+     {
+      "X": 0.31,
+      "Y": 0.05
+     },
+     {
+      "X": 0.31,
+      "Y": 0.09
+     },
+     {
+      "X": 0.08,
+      "Y": 0.09
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "LICENCE",
+   "Type": "WORD",
+   "Id": 1001,
+   "ParentId": 0,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.23,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.05
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.05
+     },
+     {
+      "X": 0.31,
+      "Y": 0.05
+     },
+     {
+      "X": 0.31,
+      "Y": 0.09
+     },
+     {
+      "X": 0.08,
+      "Y": 0.09
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "DL No. KL0120190001234",
+   "Type": "LINE",
+   "Id": 1,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.314,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.11
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.11
+     },
+     {
+      "X": 0.394,
+      "Y": 0.11
+     },
+     {
+      "X": 0.394,
+      "Y": 0.15
+     },
+     {
+      "X": 0.08,
+      "Y": 0.15
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "DL",
+   "Type": "WORD",
+   "Id": 1100,
+   "ParentId": 1,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.314,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.11
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.11
+     },
+     {
+      "X": 0.394,
+      "Y": 0.11
+     },
+     {
+      "X": 0.394,
+      "Y": 0.15
+     },
+     {
+      "X": 0.08,
+      "Y": 0.15
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "No.",
+   "Type": "WORD",
+   "Id": 1101,
+   "ParentId": 1,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.314,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.11
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.11
+     },
+     {
+      "X": 0.394,
+      "Y": 0.11
+     },
+     {
+      "X": 0.394,
+      "Y": 0.15
+     },
+     {
+      "X": 0.08,
+      "Y": 0.15
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "KL0120190001234",
+   "Type": "WORD",
+   "Id": 1102,
+   "ParentId": 1,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.314,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.11
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.11
+     },
+     {
+      "X": 0.394,
+      "Y": 0.11
+     },
+     {
+      "X": 0.394,
+      "Y": 0.15
+     },
+     {
+      "X": 0.08,
+      "Y": 0.15
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "Name : MEERA NAIR",
+   "Type": "LINE",
+   "Id": 2,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.254,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.17
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.17
+     },
+     {
+      "X": 0.334,
+      "Y": 0.17
+     },
+     {
+      "X": 0.334,
+      "Y": 0.21000000000000002
+     },
+     {
+      "X": 0.08,
+      "Y": 0.21000000000000002
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "Name",
+   "Type": "WORD",
+   "Id": 1200,
+   "ParentId": 2,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.254,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.17
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.17
+     },
+     {
+      "X": 0.334,
+      "Y": 0.17
+     },
+     {
+      "X": 0.334,
+      "Y": 0.21000000000000002
+     },
+     {
+      "X": 0.08,
+      "Y": 0.21000000000000002
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": ":",
+   "Type": "WORD",
+   "Id": 1201,
+   "ParentId": 2,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.254,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.17
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.17
+     },
+     {
+      "X": 0.334,
+      "Y": 0.17
+     },
+     {
+      "X": 0.334,
+      "Y": 0.21000000000000002
+     },
+     {
+      "X": 0.08,
+      "Y": 0.21000000000000002
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "MEERA",
+   "Type": "WORD",
+   "Id": 1202,
+   "ParentId": 2,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.254,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.17
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.17
+     },
+     {
+      "X": 0.334,
+      "Y": 0.17
+     },
+     {
+      "X": 0.334,
+      "Y": 0.21000000000000002
+     },
+     {
+      "X": 0.08,
+      "Y": 0.21000000000000002
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "NAIR",
+   "Type": "WORD",
+   "Id": 1203,
+   "ParentId": 2,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.254,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.17
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.17
+     },
+     {
+      "X": 0.334,
+      "Y": 0.17
+     },
+     {
+      "X": 0.334,
+      "Y": 0.21000000000000002
+     },
+     {
+      "X": 0.08,
+      "Y": 0.21000000000000002
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "S/D/W of : GOPAL NAIR",
+   "Type": "LINE",
+   "Id": 3,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.302,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.23
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.23
+     },
+     {
+      "X": 0.382,
+      "Y": 0.23
+     },
+     {
+      "X": 0.382,
+      "Y": 0.27
+     },
+     {
+      "X": 0.08,
+      "Y": 0.27
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "S/D/W",
+   "Type": "WORD",
+   "Id": 1300,
+   "ParentId": 3,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.302,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.23
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.23
+     },
+     {
+      "X": 0.382,
+      "Y": 0.23
+     },
+     {
+      "X": 0.382,
+      "Y": 0.27
+     },
+     {
+      "X": 0.08,
+      "Y": 0.27
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "of",
+   "Type": "WORD",
+   "Id": 1301,
+   "ParentId": 3,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.302,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.23
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.23
+     },
+     {
+      "X": 0.382,
+      "Y": 0.23
+     },
+     {
+      "X": 0.382,
+      "Y": 0.27
+     },
+     {
+      "X": 0.08,
+      "Y": 0.27
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": ":",
+   "Type": "WORD",
+   "Id": 1302,
+   "ParentId": 3,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.302,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.23
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.23
+     },
+     {
+      "X": 0.382,
+      "Y": 0.23
+     },
+     {
+      "X": 0.382,
+      "Y": 0.27
+     },
+     {
+      "X": 0.08,
+      "Y": 0.27
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "GOPAL",
+   "Type": "WORD",
+   "Id": 1303,
+   "ParentId": 3,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.302,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.23
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.23
+     },
+     {
+      "X": 0.382,
+      "Y": 0.23
+     },
+     {
+      "X": 0.382,
+      "Y": 0.27
+     },
+     {
+      "X": 0.08,
+      "Y": 0.27
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "NAIR",
+   "Type": "WORD",
+   "Id": 1304,
+   "ParentId": 3,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.302,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.23
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.23
+     },
+     {
+      "X": 0.382,
+      "Y": 0.23
+     },
+     {
+      "X": 0.382,
+      "Y": 0.27
+     },
+     {
+      "X": 0.08,
+      "Y": 0.27
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "DOB : 03/04/1992",
+   "Type": "LINE",
+   "Id": 4,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.242,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.29
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.29
+     },
+     {
+      "X": 0.322,
+      "Y": 0.29
+     },
+     {
+      "X": 0.322,
+      "Y": 0.32999999999999996
+     },
+     {
+      "X": 0.08,
+      "Y": 0.32999999999999996
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "DOB",
+   "Type": "WORD",
+   "Id": 1400,
+   "ParentId": 4,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.242,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.29
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.29
+     },
+     {
+      "X": 0.322,
+      "Y": 0.29
+     },
+     {
+      "X": 0.322,
+      "Y": 0.32999999999999996
+     },
+     {
+      "X": 0.08,
+      "Y": 0.32999999999999996
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": ":",
+   "Type": "WORD",
+   "Id": 1401,
+   "ParentId": 4,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.242,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.29
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.29
+     },
+     {
+      "X": 0.322,
+      "Y": 0.29
+     },
+     {
+      "X": 0.322,
+      "Y": 0.32999999999999996
+     },
+     {
+      "X": 0.08,
+      "Y": 0.32999999999999996
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "03/04/1992",
+   "Type": "WORD",
+   "Id": 1402,
+   "ParentId": 4,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.242,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.29
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.29
+     },
+     {
+      "X": 0.322,
+      "Y": 0.29
+     },
+     {
+      "X": 0.322,
+      "Y": 0.32999999999999996
+     },
+     {
+      "X": 0.08,
+      "Y": 0.32999999999999996
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "Blood Group : B+",
+   "Type": "LINE",
+   "Id": 5,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.242,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.35
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.35
+     },
+     {
+      "X": 0.322,
+      "Y": 0.35
+     },
+     {
+      "X": 0.322,
+      "Y": 0.38999999999999996
+     },
+     {
+      "X": 0.08,
+      "Y": 0.38999999999999996
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "Blood",
+   "Type": "WORD",
+   "Id": 1500,
+   "ParentId": 5,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.242,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.35
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.35
+     },
+     {
+      "X": 0.322,
+      "Y": 0.35
+     },
+     {
+      "X": 0.322,
+      "Y": 0.38999999999999996
+     },
+     {
+      "X": 0.08,
+      "Y": 0.38999999999999996
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "Group",
+   "Type": "WORD",
+   "Id": 1501,
+   "ParentId": 5,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.242,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.35
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.35
+     },
+     {
+      "X": 0.322,
+      "Y": 0.35
+     },
+     {
+      "X": 0.322,
+      "Y": 0.38999999999999996
+     },
+     {
+      "X": 0.08,
+      "Y": 0.38999999999999996
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": ":",
+   "Type": "WORD",
+   "Id": 1502,
+   "ParentId": 5,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.242,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.35
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.35
+     },
+     {
+      "X": 0.322,
+      "Y": 0.35
+     },
+     {
+      "X": 0.322,
+      "Y": 0.38999999999999996
+     },
+     {
+      "X": 0.08,
+      "Y": 0.38999999999999996
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "B+",
+   "Type": "WORD",
+   "Id": 1503,
+   "ParentId": 5,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.242,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.35
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.35
+     },
+     {
+      "X": 0.322,
+      "Y": 0.35
+     },
+     {
+      "X": 0.322,
+      "Y": 0.38999999999999996
+     },
+     {
+      "X": 0.08,
+      "Y": 0.38999999999999996
+     }
+    ]
+   }
+  }
+ ],
+ "TextModelVersion": "3.0"
+}

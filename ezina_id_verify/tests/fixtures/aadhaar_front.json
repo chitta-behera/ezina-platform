@@ -1,0 +1,1250 @@
+{
+ "TextDetections": [
+  {
+   "DetectedText": "भारत सरकार",
+   "Type": "LINE",
+   "Id": 0,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.17,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.05
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.05
+     },
+     {
+      "X": 0.25,
+      "Y": 0.05
+     },
+     {
+      "X": 0.25,
+      "Y": 0.09
+     },
+     {
+      "X": 0.08,
+      "Y": 0.09
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "भारत",
+   "Type": "WORD",
+   "Id": 1000,
+   "ParentId": 0,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.17,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.05
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.05
+     },
+     {
+      "X": 0.25,
+      "Y": 0.05
+     },
+     {
+      "X": 0.25,
+      "Y": 0.09
+     },
+     {
+      "X": 0.08,
+      "Y": 0.09
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "सरकार",
+   "Type": "WORD",
+   "Id": 1001,
+   "ParentId": 0,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.17,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.05
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.05
+     },
+     {
+      "X": 0.25,
+      "Y": 0.05
+     },
+     {
+      "X": 0.25,
+      "Y": 0.09
+     },
+     {
+      "X": 0.08,
+      "Y": 0.09
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "Government of India",
+   "Type": "LINE",
+   "Id": 1,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.278,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.11
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.11
+     },
+     {
+      "X": 0.35800000000000004,
+      "Y": 0.11
+     },
+     {
+      "X": 0.35800000000000004,
+      "Y": 0.15
+     },
+     {
+      "X": 0.08,
+      "Y": 0.15
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "Government",
+   "Type": "WORD",
+   "Id": 1100,
+   "ParentId": 1,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.278,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.11
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.11
+     },
+     {
+      "X": 0.35800000000000004,
+      "Y": 0.11
+     },
+     {
+      "X": 0.35800000000000004,
+      "Y": 0.15
+     },
+     {
+      "X": 0.08,
+      "Y": 0.15
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "of",
+   "Type": "WORD",
+   "Id": 1101,
+   "ParentId": 1,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.278,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.11
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.11
+     },
+     {
+      "X": 0.35800000000000004,
+      "Y": 0.11
+     },
+     {
+      "X": 0.35800000000000004,
+      "Y": 0.15
+     },
+     {
+      "X": 0.08,
+      "Y": 0.15
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "India",
+   "Type": "WORD",
+   "Id": 1102,
+   "ParentId": 1,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.278,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.11
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.11
+     },
+     {
+      "X": 0.35800000000000004,
+      "Y": 0.11
+     },
+     {
+      "X": 0.35800000000000004,
+      "Y": 0.15
+     },
+     {
+      "X": 0.08,
+      "Y": 0.15
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "आशा देवी पटेल",
+   "Type": "LINE",
+   "Id": 2,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.206,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.17
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.17
+     },
+     {
+      "X": 0.286,
+      "Y": 0.17
+     },
+     {
+      "X": 0.286,
+      "Y": 0.21000000000000002
+     },
+     {
+      "X": 0.08,
+      "Y": 0.21000000000000002
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "आशा",
+   "Type": "WORD",
+   "Id": 1200,
+   "ParentId": 2,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.206,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.17
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.17
+     },
+     {
+      "X": 0.286,
+      "Y": 0.17
+     },
+     {
+      "X": 0.286,
+      "Y": 0.21000000000000002
+     },
+     {
+      "X": 0.08,
+      "Y": 0.21000000000000002
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "देवी",
+   "Type": "WORD",
+   "Id": 1201,
+   "ParentId": 2,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.206,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.17
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.17
+     },
+     {
+      "X": 0.286,
+      "Y": 0.17
+     },
+     {
+      "X": 0.286,
+      "Y": 0.21000000000000002
+     },
+     {
+      "X": 0.08,
+      "Y": 0.21000000000000002
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "पटेल",
+   "Type": "WORD",
+   "Id": 1202,
+   "ParentId": 2,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.206,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.17
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.17
+     },
+     {
+      "X": 0.286,
+      "Y": 0.17
+     },
+     {
+      "X": 0.286,
+      "Y": 0.21000000000000002
+     },
+     {
+      "X": 0.08,
+      "Y": 0.21000000000000002
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "Asha Devi Patel",
+   "Type": "LINE",
+   "Id": 3,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.23,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.23
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.23
+     },
+     {
+      "X": 0.31,
+      "Y": 0.23
+     },
+     {
+      "X": 0.31,
+      "Y": 0.27
+     },
+     {
+      "X": 0.08,
+      "Y": 0.27
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "Asha",
+   "Type": "WORD",
+   "Id": 1300,
+   "ParentId": 3,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.23,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.23
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.23
+     },
+     {
+      "X": 0.31,
+      "Y": 0.23
+     },
+     {
+      "X": 0.31,
+      "Y": 0.27
+     },
+     {
+      "X": 0.08,
+      "Y": 0.27
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "Devi",
+   "Type": "WORD",
+   "Id": 1301,
+   "ParentId": 3,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.23,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.23
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.23
+     },
+     {
+      "X": 0.31,
+      "Y": 0.23
+     },
+     {
+      "X": 0.31,
+      "Y": 0.27
+     },
+     {
+      "X": 0.08,
+      "Y": 0.27
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "Patel",
+   "Type": "WORD",
+   "Id": 1302,
+   "ParentId": 3,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.23,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.23
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.23
+     },
+     {
+      "X": 0.31,
+      "Y": 0.23
+     },
+     {
+      "X": 0.31,
+      "Y": 0.27
+     },
+     {
+      "X": 0.08,
+      "Y": 0.27
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "S/O Raman Patel",
+   "Type": "LINE",
+   "Id": 4,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.23,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.29
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.29
+     },
+     {
+      "X": 0.31,
+      "Y": 0.29
+     },
+     {
+      "X": 0.31,
+      "Y": 0.32999999999999996
+     },
+     {
+      "X": 0.08,
+      "Y": 0.32999999999999996
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "S/O",
+   "Type": "WORD",
+   "Id": 1400,
+   "ParentId": 4,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.23,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.29
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.29
+     },
+     {
+      "X": 0.31,
+      "Y": 0.29
+     },
+     {
+      "X": 0.31,
+      "Y": 0.32999999999999996
+     },
+     {
+      "X": 0.08,
+      "Y": 0.32999999999999996
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "Raman",
+   "Type": "WORD",
+   "Id": 1401,
+   "ParentId": 4,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.23,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.29
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.29
+     },
+     {
+      "X": 0.31,
+      "Y": 0.29
+     },
+     {
+      "X": 0.31,
+      "Y": 0.32999999999999996
+     },
+     {
+      "X": 0.08,
+      "Y": 0.32999999999999996
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "Patel",
+   "Type": "WORD",
+   "Id": 1402,
+   "ParentId": 4,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.23,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.29
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.29
+     },
+     {
+      "X": 0.31,
+      "Y": 0.29
+     },
+     {
+      "X": 0.31,
+      "Y": 0.32999999999999996
+     },
+     {
+      "X": 0.08,
+      "Y": 0.32999999999999996
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "जन्म तिथि / DOB: 14/03/1990",
+   "Type": "LINE",
+   "Id": 5,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.374,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.35
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.35
+     },
+     {
+      "X": 0.454,
+      "Y": 0.35
+     },
+     {
+      "X": 0.454,
+      "Y": 0.38999999999999996
+     },
+     {
+      "X": 0.08,
+      "Y": 0.38999999999999996
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "जन्म",
+   "Type": "WORD",
+   "Id": 1500,
+   "ParentId": 5,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.374,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.35
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.35
+     },
+     {
+      "X": 0.454,
+      "Y": 0.35
+     },
+     {
+      "X": 0.454,
+      "Y": 0.38999999999999996
+     },
+     {
+      "X": 0.08,
+      "Y": 0.38999999999999996
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "तिथि",
+   "Type": "WORD",
+   "Id": 1501,
+   "ParentId": 5,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.374,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.35
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.35
+     },
+     {
+      "X": 0.454,
+      "Y": 0.35
+     },
+     {
+      "X": 0.454,
+      "Y": 0.38999999999999996
+     },
+     {
+      "X": 0.08,
+      "Y": 0.38999999999999996
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "/",
+   "Type": "WORD",
+   "Id": 1502,
+   "ParentId": 5,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.374,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.35
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.35
+     },
+     {
+      "X": 0.454,
+      "Y": 0.35
+     },
+     {
+      "X": 0.454,
+      "Y": 0.38999999999999996
+     },
+     {
+      "X": 0.08,
+      "Y": 0.38999999999999996
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "DOB:",
+   "Type": "WORD",
+   "Id": 1503,
+   "ParentId": 5,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.374,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.35
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.35
+     },
+     {
+      "X": 0.454,
+      "Y": 0.35
+     },
+     {
+      "X": 0.454,
+      "Y": 0.38999999999999996
+     },
+     {
+      "X": 0.08,
+      "Y": 0.38999999999999996
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "14/03/1990",
+   "Type": "WORD",
+   "Id": 1504,
+   "ParentId": 5,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.374,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.35
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.35
+     },
+     {
+      "X": 0.454,
+      "Y": 0.35
+     },
+     {
+      "X": 0.454,
+      "Y": 0.38999999999999996
+     },
+     {
+      "X": 0.08,
+      "Y": 0.38999999999999996
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "महिला / Female",
+   "Type": "LINE",
+   "Id": 6,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.218,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.41
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.41
+     },
+     {
+      "X": 0.298,
+      "Y": 0.41
+     },
+     {
+      "X": 0.298,
+      "Y": 0.44999999999999996
+     },
+     {
+      "X": 0.08,
+      "Y": 0.44999999999999996
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "महिला",
+   "Type": "WORD",
+   "Id": 1600,
+   "ParentId": 6,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.218,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.41
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.41
+     },
+     {
+      "X": 0.298,
+      "Y": 0.41
+     },
+     {
+      "X": 0.298,
+      "Y": 0.44999999999999996
+     },
+     {
+      "X": 0.08,
+      "Y": 0.44999999999999996
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "/",
+   "Type": "WORD",
+   "Id": 1601,
+   "ParentId": 6,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.218,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.41
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.41
+     },
+     {
+      "X": 0.298,
+      "Y": 0.41
+     },
+     {
+      "X": 0.298,
+      "Y": 0.44999999999999996
+     },
+     {
+      "X": 0.08,
+      "Y": 0.44999999999999996
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "Female",
+   "Type": "WORD",
+   "Id": 1602,
+   "ParentId": 6,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.218,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.41
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.41
+     },
+     {
+      "X": 0.298,
+      "Y": 0.41
+     },
+     {
+      "X": 0.298,
+      "Y": 0.44999999999999996
+     },
+     {
+      "X": 0.08,
+      "Y": 0.44999999999999996
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "4321 8765 1098",
+   "Type": "LINE",
+   "Id": 7,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.218,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.47
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.47
+     },
+     {
+      "X": 0.298,
+      "Y": 0.47
+     },
+     {
+      "X": 0.298,
+      "Y": 0.51
+     },
+     {
+      "X": 0.08,
+      "Y": 0.51
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "4321",
+   "Type": "WORD",
+   "Id": 1700,
+   "ParentId": 7,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.218,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.47
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.47
+     },
+     {
+      "X": 0.298,
+      "Y": 0.47
+     },
+     {
+      "X": 0.298,
+      "Y": 0.51
+     },
+     {
+      "X": 0.08,
+      "Y": 0.51
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "8765",
+   "Type": "WORD",
+   "Id": 1701,
+   "ParentId": 7,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.218,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.47
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.47
+     },
+     {
+      "X": 0.298,
+      "Y": 0.47
+     },
+     {
+      "X": 0.298,
+      "Y": 0.51
+     },
+     {
+      "X": 0.08,
+      "Y": 0.51
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "1098",
+   "Type": "WORD",
+   "Id": 1702,
+   "ParentId": 7,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.218,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.47
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.47
+     },
+     {
+      "X": 0.298,
+      "Y": 0.47
+     },
+     {
+      "X": 0.298,
+      "Y": 0.51
+     },
+     {
+      "X": 0.08,
+      "Y": 0.51
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "मेरा आधार, मेरी पहचान",
+   "Type": "LINE",
+   "Id": 8,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.302,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.53
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.53
+     },
+     {
+      "X": 0.382,
+      "Y": 0.53
+     },
+     {
+      "X": 0.382,
+      "Y": 0.5700000000000001
+     },
+     {
+      "X": 0.08,
+      "Y": 0.5700000000000001
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "मेरा",
+   "Type": "WORD",
+   "Id": 1800,
+   "ParentId": 8,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.302,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.53
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.53
+     },
+     {
+      "X": 0.382,
+      "Y": 0.53
+     },
+     {
+      "X": 0.382,
+      "Y": 0.5700000000000001
+     },
+     {
+      "X": 0.08,
+      "Y": 0.5700000000000001
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "आधार,",
+   "Type": "WORD",
+   "Id": 1801,
+   "ParentId": 8,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.302,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.53
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.53
+     },
+     {
+      "X": 0.382,
+      "Y": 0.53
+     },
+     {
+      "X": 0.382,
+      "Y": 0.5700000000000001
+     },
+     {
+      "X": 0.08,
+      "Y": 0.5700000000000001
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "मेरी",
+   "Type": "WORD",
+   "Id": 1802,
+   "ParentId": 8,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.302,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.53
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.53
+     },
+     {
+      "X": 0.382,
+      "Y": 0.53
+     },
+     {
+      "X": 0.382,
+      "Y": 0.5700000000000001
+     },
+     {
+      "X": 0.08,
+      "Y": 0.5700000000000001
+     }
+    ]
+   }
+  },
+  {
+   "DetectedText": "पहचान",
+   "Type": "WORD",
+   "Id": 1803,
+   "ParentId": 8,
+   "Confidence": 98.6,
+   "Geometry": {
+    "BoundingBox": {
+     "Width": 0.302,
+     "Height": 0.04,
+     "Left": 0.08,
+     "Top": 0.53
+    },
+    "Polygon": [
+     {
+      "X": 0.08,
+      "Y": 0.53
+     },
+     {
+      "X": 0.382,
+      "Y": 0.53
+     },
+     {
+      "X": 0.382,
+      "Y": 0.5700000000000001
+     },
+     {
+      "X": 0.08,
+      "Y": 0.5700000000000001
+     }
+    ]
+   }
+  }
+ ],
+ "TextModelVersion": "3.0"
+}

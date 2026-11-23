@@ -4,6 +4,28 @@
 #   back   kept for future use; Ezina currently asks for the FRONT only (all false)
 #   mask   show masking instructions (Aadhaar: cover the first 8 digits)
 # Ezina never asks for, stores or repeats an ID number.
+#
+# extraction: the ID name check (external document-extraction API), keyed by ID type code.
+#   doc_type     value sent to the API as the `doc_type` form field
+#   name_fields  response fields holding the name; dot paths allowed ("fields.name.value" for a response shaped
+#                {"fields": {"name": {"value": "..."}}}); the values are joined with a space, in order, and
+#                missing or empty ones are skipped
+# An ID type with no entry here is not sent to the API (name check SKIPPED). To add one, add an entry: no code change.
+# The file is validated at startup; a malformed file stops the app with a clear message.
+extraction:
+  PASSPORT:
+    doc_type: "passport"
+    name_fields: ["fields.given_names.value", "fields.surname.value"]
+  PAN:
+    doc_type: "pan"
+    name_fields: ["fields.name.value"]
+  VOTER_ID:
+    doc_type: "voter_id"
+    name_fields: ["fields.name.value"]
+  AADHAAR_MASKED:
+    doc_type: "aadhaar"
+    name_fields: ["fields.name.value"]
+
 countries:
   IN:
     types:

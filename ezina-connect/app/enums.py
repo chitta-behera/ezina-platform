@@ -85,6 +85,29 @@ class IdentityDocStatus(StrEnum):
     SUPERSEDED = "SUPERSEDED"
 
 
+class NameCheckStatus(StrEnum):
+    """identity_documents.name_check_status: advisory input for the operations team, never a verification."""
+    PENDING = "PENDING"
+    MATCHED = "MATCHED"
+    PARTIAL = "PARTIAL"
+    MISMATCH = "MISMATCH"
+    NOT_FOUND = "NOT_FOUND"
+    ERROR = "ERROR"
+    SKIPPED = "SKIPPED"
+
+
+class FaceCheckStatus(StrEnum):
+    """identity_documents.face_check_status (SELFIE rows): advisory input for the operations team, never a verification."""
+    PENDING_ID = "PENDING_ID"  # no accepted ID front yet: runs when one is accepted
+    MATCHED = "MATCHED"
+    MISMATCH = "MISMATCH"
+    NO_FACE_ID = "NO_FACE_ID"
+    NO_FACE_SELFIE = "NO_FACE_SELFIE"
+    LIVENESS_FAILED = "LIVENESS_FAILED"
+    ERROR = "ERROR"
+    SKIPPED = "SKIPPED"
+
+
 class Direction(StrEnum):
     INBOUND = "INBOUND"
     OUTBOUND = "OUTBOUND"

@@ -55,6 +55,10 @@ async def list_farmers(
     return {"total": total, "items": [_farmer_row(f) for f in rows]}
 
 
+def _num(v) -> float | None:
+    return float(v) if v is not None else None
+
+
 @router.get("/farmers/{farmer_id}")
 async def get_farmer(farmer_id: uuid.UUID, session: AsyncSession = Depends(get_session)):
     f = await session.get(Farmer, farmer_id)
@@ -90,7 +94,22 @@ async def get_farmer(farmer_id: uuid.UUID, session: AsyncSession = Depends(get_s
         "identity_documents": [
             {"id": str(d.id), "kind": d.kind, "id_document_type": d.id_document_type, "status": d.status,
              "mime": d.mime_type, "size": d.size_bytes, "attempt": d.attempt, "challenge": d.challenge,
-             "quality_result": d.quality_result, "uploaded_at": d.uploaded_at.isoformat() if d.uploaded_at else None}
+             "quality_result": d.quality_result,
+             # name check (advisory input for review): extracted_name is sensitive and appears only here
+             "name_check_status": d.name_check_status,
+             "name_match_score": float(d.name_match_score) if d.name_match_score is not None else None,
+             "extracted_name": d.extracted_name, "name_check_attempts": d.name_check_attempts,
+             "name_checked_at": d.name_checked_at.isoformat() if d.name_checked_at else None,
+             # face check (SELFIE rows; advisory input for review, scores are never shown to the farmer)
+             "face_check_status": d.face_check_status, "face_check_attempts": d.face_check_attempts,
+             "face_compared_id_document_id": str(d.face_compared_id_document_id) if d.face_compared_id_document_id else None,
+             "face_verified": d.face_verified, "face_distance": _num(d.face_distance), "face_threshold": _num(d.face_threshold),
+             "face_confidence_band": d.face_confidence_band, "face_liveness_passed": d.face_liveness_passed,
+             "face_found_id": d.face_found_id, "face_found_selfie": d.face_found_selfie,
+             "face_model": d.face_model, "face_detector": d.face_detector, "face_processing_ms": _num(d.face_processing_ms),
+             "face_warnings": d.face_warnings, "face_error_message": d.face_error_message,
+             "face_checked_at": d.face_checked_at.isoformat() if d.face_checked_at else None,
+             "uploaded_at": d.uploaded_at.isoformat() if d.uploaded_at else None}
             for d in ident
         ],
         "conversation": None if conv is None else {

@@ -595,3 +595,18 @@ def test_migration_0002_upgrades_a_database_created_before_the_feature(tmp_path)
     assert "identity_documents" in tables and {"id_document_status", "selfie_status"} <= cols
     with sqlite3.connect(db) as c:  # existing rows get the default
         assert c.execute("select id_document_status, selfie_status from farmers").fetchone() == ("NOT_PROVIDED",) * 2
+
+
+def test_id_and_selfie_prompts_use_the_attach_wording_of_the_farm_photo_step():
+    from app.config import Settings
+    from app.schemas.conversation import Draft
+    from app.workflows import messages as M
+
+    farm = M.photo_prompt("farm", "x").body
+    assert "tap 📎 (Attach) → Camera or Gallery" in farm  # the style the others follow
+    front = M.id_prompt(Draft(country="BW", id_type="OMANG"), Settings(_env_file=None)).body
+    assert "front* of your Omang: tap 📎 (Attach) → Camera or Gallery." in front and "all 4 corners showing" in front
+    selfie = M.selfie_prompt(Draft(selfie_challenge=3)).body
+    # a selfie must be live: Camera only (a gallery image or file is refused), still the front camera
+    assert "tap 📎 (Attach) → Camera and take it now with your front camera" in selfie and "*3 finger" in selfie
+    assert "Gallery" not in selfie

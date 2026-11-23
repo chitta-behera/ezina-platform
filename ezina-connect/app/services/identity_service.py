@@ -6,21 +6,33 @@ separate private bucket/prefix and are never given to Claude, never linked by UR
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import io
 import logging
 import uuid
 from datetime import datetime
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
-from app.enums import IdentityDocStatus, IdentityKind
+from app.database import utcnow
+from app.enums import FaceCheckStatus, IdentityDocStatus, IdentityKind, NameCheckStatus
 from app.models import IdentityDocument
+from app.services import name_match
+from app.services.doc_extract_service import DocExtractError, DocExtractService
+from app.services.face_verify_service import (
+    FaceResult,
+    FaceVerifyError,
+    FaceVerifyService,
+    classify,
+    pdf_first_page_png,
+)
 from app.services.storage_service import StorageBackend
 from app.services.whatsapp_service import WhatsAppError, WhatsAppService
+from app.workflows import identity_flow
 
 log = logging.getLogger("ezina.identity")
 _EXT = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "application/pdf": "pdf"}
@@ -126,6 +138,112 @@ class IdentityService:
         await session.flush()
         log.info("identity image accepted", extra={"kind": kind.value, "bytes": len(data), "attempt": attempt})
         return doc
+
+    # ------------------------------------------------------------------ name check (advisory, ID_FRONT only)
+    async def extract_name(self, doc: IdentityDocument, extract: DocExtractService) -> NameCheckStatus:
+        """Send the stored ID image to the extraction API and keep only the name on the row.
+
+        SKIPPED when the check is off or this ID type has no configuration (no API call); ERROR when the API could
+        not be used (the farmer is not blocked, operations review it); NOT_FOUND when the response had no name;
+        otherwise PENDING, with `extracted_name` set, waiting for compare_name().
+        """
+        spec = identity_flow.extraction_for(doc.id_document_type)
+        doc.name_check_status, doc.extracted_name, doc.name_match_score = NameCheckStatus.PENDING.value, None, None
+        if not extract.available or spec is None:
+            doc.name_check_status = NameCheckStatus.SKIPPED.value
+            return NameCheckStatus.SKIPPED
+        try:
+            data = await self.storage.get(doc.storage_key)
+            name = await extract.extract_name(
+                doc_type=spec.doc_type, name_fields=list(spec.name_fields), data=data, mime=doc.mime_type
+            )
+        except Exception as e:  # DocExtractError, or the stored image could not be read: never block the farmer
+            reason = e.reason if isinstance(e, DocExtractError) else type(e).__name__
+            doc.name_check_status, doc.name_checked_at = NameCheckStatus.ERROR.value, utcnow()
+            log.warning("name check error: flagged for operations review", extra={"reason": reason, "doc": str(doc.id)})
+            return NameCheckStatus.ERROR
+        doc.name_checked_at = utcnow()
+        if not name:
+            doc.name_check_status = NameCheckStatus.NOT_FOUND.value
+            return NameCheckStatus.NOT_FOUND
+        doc.extracted_name = name
+        return NameCheckStatus.PENDING
+
+    def compare_name(self, doc: IdentityDocument, given_name: str | None) -> NameCheckStatus:
+        """Compare the farmer's name with the stored extracted name (no API call). Advisory: never verifies anyone."""
+        status, score = name_match.compare(
+            given_name, doc.extracted_name, threshold=self.s.name_match_threshold, partial=self.s.name_partial_threshold
+        )
+        doc.name_check_status, doc.name_match_score, doc.name_checked_at = status.value, score, utcnow()
+        log.info("name check compared", extra={"status": status.value, "score": score, "doc": str(doc.id)})
+        return status
+
+    async def face_attempts(self, session: AsyncSession, farmer_id: uuid.UUID) -> int:
+        """Failed face checks so far: the running total kept on the farmer's SELFIE rows (superseded ones included)."""
+        top = (
+            await session.execute(
+                select(func.max(IdentityDocument.face_check_attempts)).where(
+                    IdentityDocument.farmer_id == farmer_id, IdentityDocument.kind == IdentityKind.SELFIE.value
+                )
+            )
+        ).scalar_one_or_none()
+        return int(top or 0)
+
+    # ------------------------------------------------------------------ face check (advisory, SELFIE only)
+    @staticmethod
+    def _set_face(selfie: IdentityDocument, status: FaceCheckStatus, result: FaceResult | None = None,
+                  error: str | None = None) -> FaceCheckStatus:
+        """Record the outcome on the selfie row. Only the listed fields are kept; the raw response never is."""
+        r = result or FaceResult()
+        selfie.face_check_status = status.value
+        selfie.face_verified, selfie.face_distance, selfie.face_threshold = r.verified, r.distance, r.threshold
+        selfie.face_confidence_band, selfie.face_liveness_passed = r.confidence_band, r.liveness_passed
+        selfie.face_found_id, selfie.face_found_selfie = r.face_found_id, r.face_found_selfie
+        selfie.face_model, selfie.face_detector, selfie.face_processing_ms = r.model, r.detector, r.processing_ms
+        selfie.face_warnings = r.warnings or None
+        selfie.face_error_message = error or r.error
+        selfie.face_checked_at = utcnow()
+        return status
+
+    async def face_check(
+        self, selfie: IdentityDocument, id_doc: IdentityDocument | None, verify: FaceVerifyService
+    ) -> FaceCheckStatus:
+        """Compare the selfie with the ID front's photo and keep the outcome on the selfie row.
+
+        SKIPPED when the check is off or a PDF ID cannot be turned into an image; PENDING_ID when there is no
+        accepted ID front yet (it runs when one is accepted); ERROR when the API could not be used (the farmer is
+        never blocked; operations review it). Otherwise MATCHED / MISMATCH / NO_FACE_ID / NO_FACE_SELFIE /
+        LIVENESS_FAILED, as interpreted by `classify`. Never verifies anyone.
+        """
+        selfie.face_compared_id_document_id = id_doc.id if id_doc is not None else None
+        if not verify.available:
+            return self._set_face(selfie, FaceCheckStatus.SKIPPED)
+        if id_doc is None:
+            return self._set_face(selfie, FaceCheckStatus.PENDING_ID)
+        try:
+            id_bytes, id_mime = await self.storage.get(id_doc.storage_key), id_doc.mime_type
+            selfie_bytes = await self.storage.get(selfie.storage_key)
+        except Exception as e:  # the stored image could not be read: never block the farmer
+            log.warning("face check error: flagged for operations review", extra={"reason": type(e).__name__})
+            return self._set_face(selfie, FaceCheckStatus.ERROR, error=type(e).__name__)
+        if id_mime == "application/pdf":  # the API takes images: send the first page
+            try:
+                id_bytes, id_mime = await asyncio.to_thread(pdf_first_page_png, id_bytes), "image/png"
+            except Exception as e:
+                log.warning("face check skipped: PDF could not be converted", extra={"reason": type(e).__name__})
+                return self._set_face(selfie, FaceCheckStatus.SKIPPED, error="pdf_conversion_failed")
+        try:
+            result = await verify.verify(
+                id_image=id_bytes, id_mime=id_mime, selfie_image=selfie_bytes, selfie_mime=selfie.mime_type
+            )
+        except FaceVerifyError as e:
+            log.warning("face check error: flagged for operations review", extra={"reason": e.reason})
+            return self._set_face(selfie, FaceCheckStatus.ERROR, error=e.reason)
+        status = classify(result)
+        if status == FaceCheckStatus.ERROR:
+            log.warning("face check error: flagged for operations review", extra={"reason": "api_error_or_no_verdict"})
+        log.info("face check result", extra={"status": status.value})
+        return self._set_face(selfie, status, result)
 
     async def supersede(self, session: AsyncSession, farmer_id: uuid.UUID, kind: IdentityKind) -> None:
         """Mark earlier ACCEPTED images replaced (ID_FRONT replaces the whole ID: front and back)."""

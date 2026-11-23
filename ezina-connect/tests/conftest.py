@@ -54,8 +54,9 @@ BW_ADDRESS = "Plot 1234, near Mogoditshane clinic, Mogoditshane, Kweneng Distric
 
 
 def make_ai(intent=Intent.PROVIDE_INFORMATION, *, text="", conf=0.95, lang="en", corrections=None,
-            clarify=False, field_conf=None, address_missing=None, **extracted) -> AIResponse:
+            clarify=False, field_conf=None, address_missing=None, identity_choice=None, **extracted) -> AIResponse:
     return AIResponse(
+        identity_choice=identity_choice,
         address_missing_parts=address_missing or [],
         intent=intent, extracted_data=ExtractedData(**extracted), corrections=corrections or [],
         confidence=conf, field_confidence=field_conf or {}, suggested_response=text, language=lang,

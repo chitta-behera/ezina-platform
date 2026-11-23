@@ -33,20 +33,76 @@ class IdType:
         return self.names.get((lang or "en").lower()) or self.names["en"]
 
 
+class ConfigError(ValueError):
+    """config/id_documents.yaml is malformed."""
+
+
+@dataclass(frozen=True)
+class ExtractSpec:
+    doc_type: str  # sent to the document-extraction API
+    name_fields: tuple[str, ...]  # response fields (dot paths) joined with a space to form the full name
+
+
+def _bad(msg: str) -> ConfigError:
+    return ConfigError(f"id_documents.yaml: {msg}")
+
+
+def _parse(raw: object) -> tuple[dict[str, list[IdType]], dict[str, ExtractSpec]]:
+    if not isinstance(raw, dict) or not isinstance(raw.get("countries"), dict):
+        raise _bad("a top-level 'countries' mapping is required")
+    types: dict[str, list[IdType]] = {}
+    for country, spec in raw["countries"].items():
+        entries = spec.get("types") if isinstance(spec, dict) else None
+        if not isinstance(entries, list):
+            raise _bad(f"country {country}: 'types' must be a list")
+        out = []
+        for t in entries:
+            if not isinstance(t, dict) or not isinstance(t.get("code"), str) or not t["code"]:
+                raise _bad(f"country {country}: every type needs a 'code'")
+            names = t.get("names")
+            if not isinstance(names, dict) or not isinstance(names.get("en"), str) or not names["en"]:
+                raise _bad(f"{country}/{t['code']}: 'names' needs an 'en' entry")
+            out.append(IdType(t["code"], dict(names), bool(t.get("back", False)), bool(t.get("mask", False))))
+        types[str(country).upper()] = out
+    known = {t.code for ts in types.values() for t in ts}
+    extraction: dict[str, ExtractSpec] = {}
+    block = raw.get("extraction") or {}
+    if not isinstance(block, dict):
+        raise _bad("'extraction' must be a mapping of ID type code -> {doc_type, name_fields}")
+    for code, spec in block.items():
+        if code not in known:
+            raise _bad(f"extraction: '{code}' is not an ID type listed under countries")
+        doc_type = spec.get("doc_type") if isinstance(spec, dict) else None
+        fields = spec.get("name_fields") if isinstance(spec, dict) else None
+        if not isinstance(doc_type, str) or not doc_type.strip():
+            raise _bad(f"extraction.{code}: 'doc_type' must be a non-empty string")
+        if not isinstance(fields, list) or not fields or not all(isinstance(f, str) and f.strip() for f in fields):
+            raise _bad(f"extraction.{code}: 'name_fields' must be a non-empty list of field names")
+        extraction[code] = ExtractSpec(doc_type.strip(), tuple(f.strip() for f in fields))
+    return types, extraction
+
+
 @lru_cache
-def _load() -> dict[str, list[IdType]]:
-    raw = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8")) or {}
-    out: dict[str, list[IdType]] = {}
-    for country, spec in (raw.get("countries") or {}).items():
-        out[country.upper()] = [
-            IdType(t["code"], dict(t["names"]), bool(t.get("back", False)), bool(t.get("mask", False)))
-            for t in spec.get("types", [])
-        ]
-    return out
+def _load() -> tuple[dict[str, list[IdType]], dict[str, ExtractSpec]]:
+    try:
+        raw = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
+    except yaml.YAMLError as e:
+        raise _bad(f"not valid YAML ({e})") from e
+    return _parse(raw)
+
+
+def validate_config() -> None:
+    """Called at startup: raises ConfigError with a clear message when id_documents.yaml is malformed."""
+    _load()
+
+
+def extraction_for(code: str | None) -> ExtractSpec | None:
+    """The name-check configuration of an ID type, or None (not configured: the name check is SKIPPED)."""
+    return _load()[1].get(code or "")
 
 
 def id_types(country: str | None) -> list[IdType]:
-    return list(_load().get((country or "").upper(), []))
+    return list(_load()[0].get((country or "").upper(), []))
 
 
 def find_type(country: str | None, code: str | None) -> IdType | None:
@@ -117,6 +173,7 @@ def reset_id(draft: Draft) -> None:
     draft.id_front_doc = draft.id_back_doc = None
     draft.id_attempts = 0
     draft.id_deferred = draft.id_needs_help = False
+    draft.name_check_doc, draft.name_choice_pending, draft.name_awaiting = None, False, False  # attempts are kept
 
 
 def select_type(draft: Draft, id_type: IdType) -> None:

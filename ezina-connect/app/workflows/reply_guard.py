@@ -26,10 +26,11 @@ _SENSITIVE_ASK = re.compile(
 # Claude must never judge an ID or a selfie: the Ezina team does that.
 _IDENTITY_JUDGEMENT = re.compile(
     r"\b(id|document|card|selfie|photo)\b.{0,30}\b(is|looks|seems|appears)\b.{0,15}"
-    r"\b(genuine|real|fake|forged|valid|authentic|fraud\w*)\b"
-    r"|\b(selfie|face|photo)\b.{0,30}\b(does not match|doesn't match|matches|match)\b",
+    r"\b(genuine|real|fake|forged|valid|authentic|fraud\w*)\b",
     re.I,
 )
+# Saying a selfie does or does not match the ID is only allowed when Python supplied the face-check result.
+_FACE_MATCH_CLAIM = re.compile(r"\b(selfie|face|photo)\b.{0,30}\b(does not match|doesn't match|matches|match)\b", re.I)
 _LONG_NUMBER = re.compile(r"\d(?:[ -]?\d){8,}")  # never repeat an ID number (or any long number)
 _TYPED_COORDS_ASK = re.compile(r"\b(type|enter|write|send)\b.{0,30}\b(gps|coordinates|latitude|longitude)\b", re.I)
 
@@ -43,7 +44,9 @@ _ASKS = {
 }
 
 
-def check_reply(text: str, draft: Draft, *, status_facts_supplied: bool = False) -> tuple[bool, str]:
+def check_reply(
+    text: str, draft: Draft, *, status_facts_supplied: bool = False, face_result_supplied: bool = False
+) -> tuple[bool, str]:
     """Return (ok, reason)."""
     if not text or not text.strip():
         return False, "empty"
@@ -58,6 +61,8 @@ def check_reply(text: str, draft: Draft, *, status_facts_supplied: bool = False)
     if _SENSITIVE_ASK.search(text):
         return False, "asks_sensitive_data"
     if _IDENTITY_JUDGEMENT.search(text):
+        return False, "judges_identity_document"
+    if not face_result_supplied and _FACE_MATCH_CLAIM.search(text):
         return False, "judges_identity_document"
     if _LONG_NUMBER.search(text):
         return False, "repeats_long_number"

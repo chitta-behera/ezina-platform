@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from app.config import Settings
 from app.database import Database
 from app.services.claude_service import ClaudeService
+from app.services.doc_extract_service import DocExtractService
+from app.services.face_verify_service import FaceVerifyService
 from app.services.identity_service import IdentityService
 from app.services.media_service import MediaService
 from app.services.ops_notifier import OpsNotifier
@@ -25,8 +27,14 @@ class Container:
     limiter: RateLimiter
     ops: OpsNotifier
     identity: IdentityService | None = None  # built from settings when not supplied (private identity storage)
+    doc_extract: DocExtractService | None = None  # ID name check; built from settings when not supplied
+    face_verify: FaceVerifyService | None = None  # selfie face check; built from settings when not supplied
 
     def __post_init__(self) -> None:
+        if self.doc_extract is None:
+            self.doc_extract = DocExtractService(self.settings)
+        if self.face_verify is None:
+            self.face_verify = FaceVerifyService(self.settings)
         if self.identity is None:
             self.identity = IdentityService(self.settings, self.whatsapp, get_identity_storage(self.settings))
 
@@ -48,4 +56,6 @@ class Container:
 
     async def aclose(self) -> None:
         await self.whatsapp.aclose()
+        await self.doc_extract.aclose()
+        await self.face_verify.aclose()
         await self.db.dispose()

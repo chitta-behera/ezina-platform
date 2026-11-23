@@ -198,7 +198,9 @@ Identity document fields (identity_documents, one farmer → many; kept separate
 - WhatsApp media ID, storage key, MIME type, size, SHA-256 hash, uploaded timestamp
 - For selfies: the liveness challenge issued, challenge issued timestamp
 - Quality check result (JSONB, from ImageQualityService), attempt number
-- Status: ACCEPTED, REJECTED (failed quality check), SUPERSEDED (replaced by a newer upload)
+- Status: ACCEPTED, REJECTED (failed quality check, or no name could be read from the ID), SUPERSEDED (replaced by a newer upload)
+- Face check (SELFIE rows only; NULL on other kinds, enforced by a check constraint): face_check_status (PENDING_ID, MATCHED, MISMATCH, NO_FACE_ID, NO_FACE_SELFIE, LIVENESS_FAILED, ERROR, SKIPPED), face_compared_id_document_id (FK to the ID_FRONT row used), face_verified, face_distance, face_threshold, face_confidence_band, face_liveness_passed, face_found_id, face_found_selfie, face_model, face_detector, face_processing_ms, face_warnings (JSONB), face_error_message, face_check_attempts (int, default 0, running total), face_checked_at. Index on face_check_status. The raw response is never stored beyond these fields. Farmer-level status stays in farmers.selfie_status (RECEIVED when the selfie is stored, NEEDS_HELP after the attempt limit); no new farmer columns.
+- Name check (ID_FRONT only): name_check_status (PENDING, MATCHED, PARTIAL, MISMATCH, NOT_FOUND, ERROR, SKIPPED), name_match_score (numeric, nullable), extracted_name (text, nullable; sensitive, kept for operations review), name_checked_at, name_check_attempts (int, default 0). The raw API response is never stored.
 - Never store an ID number, in any table.
 
 Media handling:
@@ -214,6 +216,19 @@ Identity document and selfie handling:
 - Python checks for every identity image: allowed MIME type, size within limits, minimum resolution (configurable, e.g. 600 px on the shorter side), and the SHA-256 hash must not match any earlier image from any farmer (reject reused images). Then run ImageQualityService if enabled.
 - Selfie liveness challenge: Python generates a random challenge (e.g. "hold up 3 fingers next to your face", number 1–5) when entering COLLECT_SELFIE, stores it with a timestamp, and passes it to Claude to include in the request. A selfie is accepted only if it arrives within SELFIE_CHALLENGE_TTL_MINUTES of the challenge; otherwise issue a new challenge. A new challenge is issued on every retry.
 - Limitation to document in the README: WhatsApp cannot force camera capture and strips photo metadata, so a gallery photo cannot be fully ruled out. The challenge, time limit and hash check reduce reuse. Design a pluggable LivenessProvider interface (LIVENESS_PROVIDER=none by default) so a KYC vendor's web liveness link can be added later. When a provider is configured, COLLECT_SELFIE sends the provider's link and waits for the provider's callback instead of a WhatsApp photo.
+- ID name check (advisory): after an ID_FRONT image has passed the quality checks and been stored, Python sends it to an external document-extraction API (app/services/doc_extract_service.py), reads only the name from the response, and compares it with the full name the farmer gave (app/services/name_match.py, rapidfuzz). It runs in the existing async message processing, never in the webhook request; if it takes longer than DOC_EXTRACT_HOLD_SECONDS (default 5) the farmer gets a short holding message. It is an input for the operations team only and never verifies a farmer.
+  - Request: multipart/form-data POST to DOC_EXTRACT_API_URL with `doc_type` and `file` (the stored bytes, with the right filename and Content-Type). The key (optional) is sent in DOC_EXTRACT_API_KEY_HEADER (default Authorization, as "Bearer <key>"; any other header gets the bare key). HTTPX async; timeouts, connection errors and 5xx are retried with backoff (DOC_EXTRACT_MAX_RETRIES), 4xx and unparseable bodies are not. Only status codes and timings are logged. Every response field except the name fields is discarded unseen.
+  - Per-document configuration in app/config/id_documents.yaml, section `extraction`, keyed by ID type code: `doc_type` (sent to the API) and `name_fields` (response fields, dot paths allowed such as "data.name"; the values are joined with a space in order, empty or missing ones skipped). The API wraps each field as {"value", "confidence", ...} under "fields", so the paths are "fields.name.value" and so on. Initial: PASSPORT (passport; fields.given_names.value, fields.surname.value), PAN (pan; fields.name.value), VOTER_ID (voter_id; fields.name.value). Only the VOTER_ID and AADHAAR_MASKED (doc_type "aadhaar", fields.name.value) shapes were confirmed against real responses; PASSPORT and PAN follow the same envelope and are unverified. An ID type with no entry (AADHAAR_MASKED, DRIVING_LICENCE, OMANG, KCC) is not sent to the API and its name check is SKIPPED. Adding a type or changing a field name is a config change only. The file is validated at startup and a malformed file stops the app with a clear message.
+  - Name matching: lowercase, accents and punctuation removed, titles removed (Mr, Mrs, Ms, Dr, Shri, Smt, Kumari, ...). Tolerant of word order, middle names, initials and small spelling differences (token_sort_ratio, token_set_ratio and an initials expansion; a lone given name never matches a longer name). Score >= NAME_MATCH_THRESHOLD (default 90): MATCHED; >= NAME_PARTIAL_THRESHOLD (default 75): PARTIAL; below: MISMATCH; no name on the ID: NOT_FOUND.
+  - MATCHED: continue ("Thank you, your ID has been received"). PARTIAL / MISMATCH: kindly say the name on the ID does not match the name the farmer gave (showing only the name the farmer gave) with two buttons: [Change my name] (ask for the full name exactly as written on the ID, update the farmer's full name and re-compare with the already-extracted name, without calling the API again) and [Upload another ID] (the compared document is marked SUPERSEDED, then ID type selection and a new photo, which is sent to the API and compared again). A free-text reply is read by Claude: a new name is "Change my name", a request to send a different ID is "Upload another ID", anything else shows the two buttons again. NOT_FOUND: ask for a clearer photo (counts toward IDENTITY_MAX_ATTEMPTS; that document is marked REJECTED). ERROR (timeout, error or unparseable response after the retries) and SKIPPED: say nothing about the name check, continue normally; an ERROR is logged and left on the document for operations review.
+  - After NAME_CHECK_MAX_ATTEMPTS (default 3) failed comparisons in total (name changes plus new IDs), stop asking, tell the farmer the Ezina team will review the ID and contact them, set the ID document status to NEEDS_HELP (the document stays stored with its result for review) and continue to the next step.
+  - The mismatch wording is written by Claude in the farmer's language (English uses the template); Python decides which case applies, checks the text with the reply guard and falls back to the template. Never repeat the name read from the ID, never mention ID numbers, never accuse the farmer. The extracted name is sensitive: it is stored only on identity_documents.extracted_name for the review, never logged, never put in a prompt sent to Claude or in the conversation draft, and returned only by the admin farmer-detail endpoint.
+- Selfie face check (advisory): after a selfie has passed the checks above and been stored, Python sends it with the farmer's current ACCEPTED ID_FRONT image to an external face-verification API (app/services/face_verify_service.py). It runs in the existing async message processing, never in the webhook request, and because the API can take ~15 seconds the farmer first gets "Thank you! Checking your selfie, this takes a few seconds…". It is an input for the operations team only and never verifies a farmer.
+  - Request: multipart/form-data POST to FACE_VERIFY_API_URL with two files, `id_image` (the ID front) and `selfie_image`, each with the right filename and Content-Type. The key (optional) is sent in FACE_VERIFY_API_KEY_HEADER (default Authorization, as "Bearer <key>"; any other header gets the bare key). If the ID front is stored as a PDF, its first page is converted to a PNG first; if that fails the check is SKIPPED. HTTPX async; timeouts, connection errors and 5xx are retried with backoff (FACE_VERIFY_MAX_RETRIES), 4xx and unparseable bodies are not. Only status codes, timings and the result status are logged: never an image, never a score.
+  - Python interprets the response in this order: `error` not null, an unparseable response or an API failure after the retries: ERROR (the farmer is not blocked, the flow continues, operations review it); `face_found_id` false: NO_FACE_ID; `face_found_selfie` false: NO_FACE_SELFIE; `liveness_passed` false: LIVENESS_FAILED; `verified` true: MATCHED; `verified` false: MISMATCH. Unknown response fields are ignored and missing optional ones are tolerated. Observed behaviour of the real API: it answers "no face found" with HTTP 422 and the normal result body, with `error` set and face_found_id / face_found_selfie false. A 4xx whose body is a result is therefore read as a result (not retried, not an API failure), and an explicit no-face flag wins over the `error` text (NO_FACE_ID / NO_FACE_SELFIE); any other `error` is ERROR. A 4xx with a validation body (`detail`) fails with the field names, never the values. The API also has its own image-quality gate (422 `{"error": "image quality check failed", "issues": ["selfie is too blurry (sharpness 18.4 < 60.0)"]}`) which photos recompressed by WhatsApp fail; when FACE_VERIFY_SHARPEN_RETRY is true and the rejection names a blurry photo, the client retries ONCE with a mildly sharpened JPEG copy of just that photo (unsharp mask radius 2, 250%; a stronger setting made the API's liveness check fail). Stored images are never changed; if the retry also fails the result is ERROR and the API's issues text is kept in face_error_message. No accepted ID front yet (ID deferred or NEEDS_HELP): PENDING_ID, the flow continues, and the check runs automatically when an ID is accepted later. A new ID (the old one SUPERSEDED) re-runs the check with the new ID and the current selfie. FACE_VERIFY_ENABLED=false: no call (SKIPPED).
+  - MATCHED: continue ("Thank you, your selfie has been received"). MISMATCH: kindly say the selfie does not seem to match the photo on the ID, with tips for a new selfie (face the light, no cap or sunglasses, face fully in the frame, look as on the ID if possible) and two buttons: [Take a new selfie] (the compared selfie is SUPERSEDED, new liveness challenge) and [Upload another ID] (the old ID is SUPERSEDED; the new one goes through the name check, then the face check runs again with the current selfie). NO_FACE_SELFIE or LIVENESS_FAILED: ask for a new selfie taken now with the front camera (new liveness challenge; that selfie is marked REJECTED). NO_FACE_ID: say the photo on the ID is not clear and ask for a clearer photo of the ID front or a different ID (the old ID is SUPERSEDED). ERROR: the selfie is accepted and the farmer is told the automatic check could not finish, that the selfie is saved and that the Ezina team will complete it (no reason, no code). SKIPPED and PENDING_ID: say nothing about the face check. A free-text reply is read by Claude (`identity_choice` NEW_SELFIE or OTHER_ID); anything else shows the two buttons again. Never show the farmer a distance, threshold, confidence band or any score, and never accuse the farmer.
+  - After FACE_VERIFY_MAX_ATTEMPTS (default 3) failed checks in total (new selfies plus new IDs), stop asking, tell the farmer the Ezina team will review their photos, set selfie_status to NEEDS_HELP, flag for operations review and continue. The running total is kept on each SELFIE row (face_check_attempts), so it counts across superseded selfies and survives into the later identity flow.
+  - The mismatch wording is written by Claude in the farmer's language (English uses the template); Python decides the case, checks the text with the reply guard (which allows a "selfie does not match" statement only for this Python-supplied result) and falls back to the template.
 - Retries: up to IDENTITY_MAX_ATTEMPTS (default 3) per image. After each failure, tell the farmer the one main thing to fix, using farmer_tip or a templated tip. After the limit, set the status to NEEDS_HELP, flag for operations follow-up, and continue to the next stage.
 - "Send later": set the status to DEFERRED and continue. Send a reminder after IDENTITY_REMINDER_HOURS if still missing (within the 24-hour window, otherwise via template).
 - Storage: identity images go in a separate private bucket or prefix (S3_IDENTITY_BUCKET) with server-side encryption. Never public URLs. Admins view them only through short-lived signed URLs (IDENTITY_URL_TTL_SECONDS), and every view is recorded in an access log (who, when, which document).
@@ -395,7 +410,7 @@ Ezina: Thank you! Your farm location has been received. Now, to verify you, whic
 
 Farmer: [Omang]
 
-Ezina: Please send a clear photo of the *front* of your Omang. Put it on a flat surface in good light, with all 4 corners showing.
+Ezina: Please send a clear photo of the *front* of your Omang: tap 📎 (Attach) → Camera or Gallery. Put it on a flat surface in good light, with all 4 corners showing.
 
 Farmer: [Sends photo – blurry]
 
@@ -407,7 +422,7 @@ Ezina: Thank you! Now please send a photo of the *back* of your Omang.
 
 Farmer: [Sends photo]
 
-Ezina: Got it ✅. Last step for verification: please take a *new selfie* now with your front camera, holding up *3 fingers* next to your face.
+Ezina: Got it ✅. Last step for verification: please send a *new selfie*: tap 📎 (Attach) → Camera and take it now with your front camera, holding up *3 fingers* next to your face.
 
 Farmer: [Sends selfie with 3 fingers]
 
@@ -466,7 +481,7 @@ Communication guidelines:
 - Never promise buyers, sales, prices or guaranteed income.
 - Never claim registration or verification status unless Python has supplied it.
 - Never ask for national ID numbers, bank details, passwords or OTPs. Ask only for a photo of the ID card; for Aadhaar, remind the farmer to cover the first 8 digits.
-- Never repeat back any ID number, or any detail read from an ID document.
+- Never repeat back any ID number, or any detail read from an ID document. When the name on an ID does not match, say so kindly, show only the name the farmer gave, and never accuse the farmer.
 - When asking for the ID photo or selfie, briefly say why (to verify the farmer) and that it is kept private. Give simple photo tips: good light, flat surface, all corners visible, no glare; for selfies, front camera, face visible, no sunglasses or cap.
 - When asking for the selfie, include the exact liveness challenge supplied by Python. Never make up a challenge.
 - When an image is rejected, say kindly what to fix in one sentence, using the reason supplied by Python. Never suggest the farmer is cheating.
@@ -507,7 +522,7 @@ ezina-platform/
                 state_machine.py     (stages, transitions)
                 farmer_registration.py
                 farm_flow.py         (reusable farm sub-flow for ADD_FARM)
-                identity_flow.py     (COLLECT_ID_DOCUMENT and COLLECT_SELFIE; reused by SUBMIT_IDENTITY_DOCUMENTS)
+                identity_flow.py     (COLLECT_ID_DOCUMENT and COLLECT_SELFIE; reused by SUBMIT_IDENTITY_DOCUMENTS; validates id_documents.yaml)
                 harvest_flow.py
                 intent_router.py
                 validators.py
@@ -572,6 +587,26 @@ IDENTITY_REMINDER_HOURS=      (reminder for deferred ID/selfie)
 IMAGE_QUALITY_CHECK_ENABLED=  (true | false)
 IDENTITY_MIN_IMAGE_PX=        (minimum shorter side, e.g. 600)
 SELFIE_CHALLENGE_TTL_MINUTES= (e.g. 10)
+DOC_EXTRACT_ENABLED=          (true | false; default false)
+DOC_EXTRACT_API_URL=          (e.g. https://<host>/extract; changeable without code changes)
+DOC_EXTRACT_API_KEY=          (optional)
+DOC_EXTRACT_API_KEY_HEADER=   (default Authorization, sent as "Bearer <key>")
+DOC_EXTRACT_TIMEOUT_SECONDS=  (default 30)
+DOC_EXTRACT_MAX_RETRIES=      (default 2; timeouts, connection errors and 5xx only)
+DOC_EXTRACT_RETRY_BASE_DELAY= (backoff base in seconds, default 1)
+DOC_EXTRACT_HOLD_SECONDS=     (send "Checking your ID..." after this long, default 5)
+NAME_MATCH_THRESHOLD=         (default 90: MATCHED)
+NAME_PARTIAL_THRESHOLD=       (default 75: PARTIAL)
+NAME_CHECK_MAX_ATTEMPTS=      (default 3)
+FACE_VERIFY_ENABLED=          (true | false; default false)
+FACE_VERIFY_API_URL=          (e.g. https://<host>/verify; changeable without code changes)
+FACE_VERIFY_API_KEY=          (optional)
+FACE_VERIFY_API_KEY_HEADER=   (default Authorization, sent as "Bearer <key>")
+FACE_VERIFY_TIMEOUT_SECONDS=  (default 60; the API can take ~15 seconds)
+FACE_VERIFY_MAX_RETRIES=      (default 2; timeouts, connection errors and 5xx only)
+FACE_VERIFY_RETRY_BASE_DELAY= (backoff base in seconds, default 1)
+FACE_VERIFY_MAX_ATTEMPTS=     (default 3)
+FACE_VERIFY_SHARPEN_RETRY=    (default true; see the face check section)
 LIVENESS_PROVIDER=            (none | <vendor>)
 LOG_LEVEL=
 APP_ENV=                      (development | production)
@@ -612,6 +647,8 @@ Unit and integration tests (pytest, pytest-asyncio; mock the Anthropic and Meta 
 28. Identity images never appear in the conversation prompt sent to Claude.
 29. Admin signed URL creation writes to identity_access_log; VERIFIED blocked without accepted ID and selfie.
 30. Data-deletion request removes identity images from storage.
+31. ID name check (tests/test_name_check.py, API mocked with httpx.MockTransport): multipart request with doc_type and file and the key header; name fields joined (passport given_names + surname, only given_names, PAN and Voter ID "name", nested paths); ID types without configuration and DOC_EXTRACT_ENABLED=false make no API call (SKIPPED); name variants (word order, initials, titles, accents, typos); MATCHED, PARTIAL, MISMATCH, NOT_FOUND paths with their messages and buttons; [Change my name] re-compares without a new API call; [Upload another ID] supersedes the old document and calls the API for the new one; free-text replies routed to the right option; 5xx and timeouts retried then ERROR with the flow continuing, 4xx not retried; NAME_CHECK_MAX_ATTEMPTS then NEEDS_HELP; malformed id_documents.yaml fails at startup; the extracted name and ID fields never appear in logs, the Claude prompt or farmer messages; migration 0004.
+32. Selfie face check (tests/test_face_check.py, API mocked with httpx.MockTransport): multipart request with id_image and selfie_image and their Content-Types, key header; the sample response parsed, extra or missing fields tolerated; the interpretation order (error, no face in the ID, no face in the selfie, liveness, verified); MATCHED continues, MISMATCH shows [Take a new selfie] / [Upload another ID] and no score, NO_FACE_ID asks for a clearer ID, NO_FACE_SELFIE and LIVENESS_FAILED ask for a new selfie; ERROR (error field, 5xx, timeout, 4xx, unparseable) never blocks; timeouts and 5xx retried, 4xx not; no accepted ID gives PENDING_ID and the check runs when the ID is accepted; a new ID after a mismatch re-runs it (after the name check); a PDF ID front is converted to a PNG; FACE_VERIFY_MAX_ATTEMPTS then NEEDS_HELP; FACE_VERIFY_ENABLED=false makes no call; free-text replies routed; scores never in farmer messages, logs or Claude prompts; migration 0005.
 
 Prompt quality evaluation:
 - Provide a small evaluation script with about 30 realistic farmer messages (informal, misspelt, mixed language, multiple answers, prompt-injection attempts) and expected intents/extractions. Run it against the real Claude API on demand, not in CI.
