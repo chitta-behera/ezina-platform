@@ -5,6 +5,9 @@ platform. FastAPI backend, Meta WhatsApp Cloud API for messaging, Anthropic Clau
 PostgreSQL (Neon/Supabase, async SQLAlchemy) for all state. The app lives in `ezina-connect/`.
 
 **Always follow `docs/ezina-spec.md`. Read it before making changes.**
+
+The marketing website (www.ezina.ai) is a separate pnpm/Next.js workspace in `ezina-web/`, with its own rules in
+`ezina-web/CLAUDE.md` and its spec in `ezina-web/docs/website-spec.md`. The backend rules below don't apply to it.
 Current status, known issues, pending work and decisions are in `docs/progress.md`.
 
 ## Architecture rules (do not break)

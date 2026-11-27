@@ -1,0 +1,29 @@
+{
+  "name": "@ezina/web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Ezina marketing site (www.ezina.ai). Static export for Cloudflare Pages.",
+  "scripts": {
+    "dev": "next dev --webpack",
+    "build": "next build --webpack",
+    "start": "npx --yes serve@14 out",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ezina/ui": "workspace:*",
+    "next": "16.4.6",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@ezina/config": "workspace:*",
+    "@tailwindcss/postcss": "4.3.5",
+    "@types/node": "^22.0.0",
+    "@types/react": "19.3.3",
+    "@types/react-dom": "^19.0.0",
+    "eslint": "^9.39.0",
+    "tailwindcss": "4.3.5",
+    "typescript": "~5.9.3"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "name": "@ezina/config",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared Tailwind, TypeScript and ESLint config for Ezina web apps.",
+  "exports": {
+    "./tsconfig/base.json": "./tsconfig/base.json",
+    "./tsconfig/nextjs.json": "./tsconfig/nextjs.json",
+    "./eslint/next": "./eslint/next.mjs",
+    "./tailwind/base.css": "./tailwind/base.css"
+  },
+  "dependencies": {
+    "eslint-config-next": "16.4.6"
+  },
+  "peerDependencies": {
+    "eslint": ">=9"
+  }
+}

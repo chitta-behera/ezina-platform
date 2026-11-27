@@ -1,6 +1,6 @@
 # Progress
 
-Last updated: 2026-11-23
+Last updated: 2026-11-27
 
 ## Phases
 
@@ -13,6 +13,7 @@ Last updated: 2026-11-23
 | 2 | `ADD_FARM`, `ADD_CROP`, `UPDATE_CROP`, `UPDATE_PROFILE` flows | **Pending** (currently a polite "coming soon"; `workflows/farm_flow.py` is ready to reuse) |
 | 3 | Harvest availability flow (`workflows/harvest_flow.py`), opportunity notifications | **Pending** (`harvests` table and extraction fields exist) |
 | 3 | Prompt-evaluation script (~30 messages, real Claude API, on demand) | **Pending** |
+| Web | Marketing site www.ezina.ai (`ezina-web/`, pnpm workspace: `apps/web` + `packages/ui` + `packages/config`), static export for Cloudflare Pages | **Built, not deployed** (content placeholders open; see below) |
 
 ## What is working
 
@@ -47,6 +48,78 @@ Last updated: 2026-11-23
   anonymisation helper, startup recovery of unprocessed messages, outbox delivery with retry/backoff and 24h-window
   template fallback.
 
+- Marketing site (`ezina-web/`, 2026-11-27): `pnpm build` exports `/`, `/privacy`, `/terms`, `sitemap.xml`,
+  `robots.txt`, icons and OG image to `apps/web/out`; lint and typecheck pass; axe (WCAG 2 A/AA) shows no violations
+  on the home and privacy pages at 390px and 1280px. All copy and flags are in `ezina-web/apps/web/content/site.ts`.
+- Marketing site update (2026-11-27, second pass): official logo (www.ezina.ai/logo.png, margin trimmed only) in
+  header, footer, favicon, chat avatar and OG image; new light hero (headline + animated WhatsApp phone + count-up
+  stats 1K+ / 10+ / 24/7 / 3+); WhatsApp-style chat mockups (tails, ticks, typing indicator, wallpaper; carousel on
+  phones); "Request early access" form removed; every Get Started is a disabled "Coming soon" button while
+  `getStartedUrl` is null. lint, typecheck and build pass; axe clean, no horizontal overflow at 375px and 1440px;
+  reduced motion shows the final content at once.
+- Third pass (2026-11-27): phone mockup removed from the hero (centred text-led hero over a sunrise/fields backdrop
+  with the stats card); WhatsApp demo restyled to the owner's reference images (green header, "online", larger
+  bubbles, "Type a message" + green mic) on a sky-to-field backdrop. lint, typecheck, build and axe pass at 375/1440.
+- Fourth pass (2026-11-27): hero rebuilt as a full-bleed photo hero (cornfield at sunset, Pexels 33443252) in the
+  style of eiziba.com: green overlay, white headline, glass pill, Coming-soon Get Started, inline count-up stats, three
+  glass feature cards. Reference images moved to `ezina-web/docs/refs/` (not deployed). Build, typecheck, lint and axe
+  pass at 375/1440. The WhatsApp section is still to be redone.
+- Fifth pass (2026-11-27): WhatsApp demo redesigned as one large tilted phone + 3 auto-advancing, clickable steps,
+  floating cards, a blob + dot-grid backdrop and a topographic chat wallpaper (CSS/SVG). Tested at 375/768/1440: autoplay,
+  click, arrow keys, hover pause, reduced motion (final state, no autoplay), no horizontal scroll, axe clean, build
+  passes. Example figures (P9.50–P11.00/kg) are owner-provided and labelled "example figures".
+- Sixth pass (2026-11-27): demo extended to 4 steps (quick-reply buttons with a tap highlight, then the farmer's
+  choice and Ezina's confirmation) plus a "Matching buyers" card; the phone tilt was removed. Checked at 375/768/1440:
+  full 4-step autoplay loop, clicks, keys, hover pause, reduced motion, no horizontal scroll, axe clean, build passes.
+- Seventh pass (2026-11-27): the WhatsApp demo fits one screen. The phone is sized by viewport height (max 560px,
+  9:18), the chat scrolls inside the phone (per-step scenes), the step list is compact and the duplicate step-3
+  question was removed. At 1440×900, 1366×768, 1280×720, 768×1024 and 375×667 the heading, full phone, first message
+  and step controls are all visible with no page scroll; the page never moves during autoplay; axe clean; build
+  passes. The floating mobile WhatsApp button hides while the demo is on screen.
+- 2026-11-27: "How Ezina works" intro and the first FAQ answer now say "Ezina uses AI and verified evidence…".
+  "Who it's for" became "What is Ezina for?" with 4 equal-height cards (farmers with a Free badge, buyers,
+  institutions, export partners), wording from the original site, and no Get Started. Checked at 375/768/1280/1440;
+  axe clean; build passes.
+- 2026-11-27: "What buyers receive" redesigned as a one-screen stepper (card left, steps right; 3 steps: report,
+  opportunity, evidence & uncertainty) sharing the new `StepTabs` component with the WhatsApp demo. Progress-bar
+  auto-advance, staggered item animations, floating note per step. Tested at 1440×900, 1366×768, 1280×720,
+  768×1024 and 375×667: everything fits one screen, auto-advance 1→2→3→1, hover pause, click and keys, reduced motion
+  (no auto-advance, final states), no page scroll, axe clean. The WhatsApp demo was re-tested after the refactor and
+  still passes. Build passes.
+- 2026-11-27: Validation story rebuilt as the third stepper (card on the right) with an owner-provided, labelled
+  illustrative scenario (maize, Kenya, example figures) replacing the `[TODO]` placeholders, plus the real
+  "Early validation: 24 farmers" line. Stepper logic is shared in `useStepper`. Tested at 1440×900, 1366×768,
+  1280×720, 768×1024 and 375×667: one screen, auto-advance 1→2→3→1, hover pause, keys, reduced motion, no page scroll,
+  axe clean; the buyers stepper was re-tested after the refactor. Build passes. Removed from the page: the 20/20
+  questionnaire findings and "what we're proving next".
+- 2026-11-27: added "Why choose Ezina" (5 items, original titles) and rebuilt "How Ezina earns" as pricing-style
+  cards without prices (`#pricing`, a "Pricing" nav link), using the original site's wording and an on-scroll
+  `Reveal`. Tested at 375/768/1024/1440: Why choose fits one screen, cards are equal height with CTAs aligned, no
+  prices or Get Started, axe clean, no horizontal scroll; reduced motion shows everything. Build passes.
+- 2026-11-27: new /contact ("Talk to us") page, frontend only: a pill-style form with plain-TS validation, a
+  honeypot, no CAPTCHA, and the success, error and sending states. Submission goes through `lib/contact.ts`
+  (`NEXT_PUBLIC_CONTACT_MODE` mock|api, `NEXT_PUBLIC_CONTACT_API_URL`); the API contract is in the README. Every
+  "Talk to us" now links to /contact; it is in the sitemap. Tested at 375/768/1440:
+  - validation (empty, bad email, short message, bad phone), mock success, reset and honeypot (no submit);
+  - an api-mode test build against a local endpoint: 200 success, 400 field error with focus, 500 error with input
+    kept, exact payload checked;
+  - axe clean, build passes (mock mode).
+
+  **Pending (backend):** an endpoint implementing the contract; then set mode=api and the URL, and rebuild.
+  **Pending (owner):** confirm the "Where we work" cities.
+- 2026-11-27: "What is Ezina for?" Institutions and Export partners links now go to `#pricing` and highlight the
+  Institutions or Buyers pricing card (pulse once; a static ring under reduced motion). Tested from the top of the
+  page at 1440 and 375: lands just below the header (73px) and the right card rings. Build passes.
+- 2026-11-27: header main action is now a primary orange "Talk to us" button (to /contact) instead of Get Started /
+  Coming soon, also at the bottom of the mobile menu. Get Started stays elsewhere (hero, closing) and getStartedUrl is
+  kept in site.ts. Checked at 375/768/1440: one Talk to us in the bar, menu button works, axe clean. Build passes.
+- 2026-11-27: WhatsApp demo phone made about 10% taller (version B, chosen from a temporary A/B/C preview page that has
+  since been deleted, along with its screenshots). Max 616px; still one screen at 1440×900, 1366×768, 1280×720,
+  768×1024 and 375×667, with internal chat scroll and auto-scroll intact; axe clean; build passes.
+- 2026-11-27: WhatsApp phone a further 10% taller (max 678px; tablets have their own cap). Fits one screen at
+  1440×900 (678), 1366×768 (600), 1280×720 (552), 1024×768 (600), 768×1024 (638), 390×844 (590) and 375×667 (413).
+  Axe clean; build passes.
+
 ## Known issues / not verified
 
 - **Not yet verified live:** PostgreSQL (Neon/Supabase) behaviour incl. `pg_advisory_xact_lock` and PgBouncer; the S3
@@ -75,6 +148,12 @@ Last updated: 2026-11-23
   current models; tested on SQLite (fresh DB, pre-feature DB, downgrade) but **not yet run against PostgreSQL**.
 - The ID-number redactor is a heuristic (8+ digits, PAN pattern): short alphanumeric passport numbers are not caught.
 
+- **Marketing site:** not yet deployed to Cloudflare Pages; there is no lead-capture form (early access removed;
+  "Get Started" is "Coming soon" until `getStartedUrl` is set); `[TODO` placeholders remain in `content/site.ts`
+  (price examples, validation story, main crops list, founder LinkedIn URLs, legal entity/address/law/retention);
+  legal pages are drafts pending legal review. The official logo file is a JPEG named `.png` with an opaque cream
+  background; a transparent or SVG version would look cleaner on dark sections. Turbopack fails on Windows+pnpm (lightningcss native module), so `dev`/`build` use `--webpack`.
+
 ## Pending tasks
 
 1. Finish live testing of the full registration flow on WhatsApp and fix anything found.
@@ -87,8 +166,23 @@ Last updated: 2026-11-23
    separate encrypted identity bucket).
 8. Identity phase 2 (see Known issues): signed URLs + access log, vision quality check, reminders, retention, VERIFIED
    gate. Confirm retention periods with legal before production.
+9. Marketing site: fill the `[TODO` placeholders, legal review of /privacy and /terms, set `getStartedUrl` when the
+   app is ready, deploy
+   `ezina-web` to Cloudflare Pages (root `ezina-web`, output `apps/web/out`), point www.ezina.ai at it and redirect the apex.
 
 ## Decisions (with reasons)
+
+- **Marketing site is a separate pnpm workspace in `ezina-web/` (2026-11-27).** Own lockfile, build and deploy; no
+  dependency on the Python backend. Static export (`output: "export"`) so it runs on Cloudflare Pages with no server,
+  and all content (tables, FAQ, chats) is in the HTML. Brand tokens are from the original ezina.ai stylesheet; button
+  orange is darkened to `#d4370c` so white text meets WCAG AA. `ezina.ai` is the only domain (LinkedIn page URL
+  `linkedin.com/company/ezina-tech` kept). The original site's illustrative "Agricultural Indices" table, long roadmap
+  and "Why choose Ezina" list were dropped. Future `apps/app` (app.ezina.ai) reuses `@ezina/ui`.
+- **Marketing site second pass (2026-11-27, owner request).** Official logo used as-is apart from trimming its empty
+  margin (owner approved; untrimmed it was unreadable at header size). Hero stats 1K+ farmers, 10+ crops, 24/7, 3+
+  countries confirmed by the owner for publishing; validation copy reworded ("pre-product" removed, the 24 farmers
+  described as the structured research record) so it doesn't contradict them. Early-access form and `appLive`
+  removed; `getStartedUrl: null` renders a disabled "Coming soon" button everywhere.
 
 - **Farm address is one text, parts are never stored.** Follow-up questions are templated (English) so the wording and
   the example are exactly what Python picked for the country; Claude's own wording for the address question is used only

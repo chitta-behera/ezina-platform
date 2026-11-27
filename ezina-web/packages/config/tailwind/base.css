@@ -1,0 +1,40 @@
+/*
+ * Shared Tailwind v4 base for Ezina web apps.
+ * Import this first, then @ezina/ui/theme.css for brand tokens.
+ */
+@import "tailwindcss";
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+  /* In-page anchors land just below the sticky header (72px bar + 1px border). */
+  :target, section[id] { scroll-margin-top: 73px; }
+  :focus-visible {
+    outline: 3px solid var(--color-focus, #2563eb);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+  summary { cursor: pointer; }
+  summary::-webkit-details-marker { display: none; }
+}
+
+@utility container-page {
+  width: 100%;
+  max-width: 72rem;
+  margin-inline: auto;
+  padding-inline: 1.25rem;
+  @media (width >= 40rem) { padding-inline: 1.5rem; }
+}
+
+@utility sr-only-focusable {
+  position: absolute;
+  width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border-width: 0;
+  &:focus { position: static; width: auto; height: auto; margin: 0; overflow: visible; clip: auto; white-space: normal; }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "ezina-web",
+  "private": true,
+  "description": "Ezina web workspace: marketing site (apps/web) and shared packages.",
+  "packageManager": "pnpm@10.34.9",
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @ezina/web dev",
+    "build": "pnpm --filter @ezina/web build",
+    "start": "pnpm --filter @ezina/web start",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck"
+  }
+}

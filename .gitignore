@@ -5,6 +5,7 @@ __pycache__/
 .pytest_cache/
 *.db
 media_store/
+media_store_identity/
 .pip.log
 .uv.log
 *.egg-info/

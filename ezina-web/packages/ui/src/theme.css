@@ -1,0 +1,35 @@
+/*
+ * Ezina brand tokens (Tailwind v4 @theme). Taken from the original www.ezina.ai stylesheet.
+ * Apps set --font-inter and --font-franklin (e.g. with next/font); system fonts are the fallback.
+ */
+@theme {
+  --color-navy: #0c1e34;
+  --color-navy-deep: #081627;
+  --color-navy-card: #10283f;
+  --color-navy-line: #1f425f;
+  --color-cream: #fdfcf7;
+  --color-paper: #ffffff;
+  /* Brand orange: logo, accents, ticks. Not for small text (contrast). */
+  --color-orange: #fc4a1a;
+  /* Deeper orange for buttons with white text (4.8:1) . */
+  --color-orange-strong: #d4370c;
+  --color-orange-stronger: #b02d08;
+  /* Orange for text on cream/white (5.4:1). */
+  --color-orange-ink: #c2330b;
+  --color-orange-soft: #ff9a7a;
+  --color-orange-wash: #fdf3ee;
+  --color-ink: #1d2a38;
+  --color-muted: #5a6570;
+  --color-line: #e8e2d4;
+  --color-ok: #1e7a46;
+  --color-ok-wash: #e6f4ec;
+  --color-warn: #a34a06;
+  --color-warn-wash: #fdf1e1;
+  --color-focus: #2563eb;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, "Segoe UI", Roboto, Arial, sans-serif;
+  --font-display: var(--font-franklin), var(--font-inter), ui-sans-serif, system-ui, "Segoe UI", Arial, sans-serif;
+
+  --radius-btn: 10px;
+  --radius-card: 14px;
+}
